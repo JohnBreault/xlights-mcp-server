@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 # Initialize MCP server
 mcp = FastMCP(
     "xLights Sequence Generator",
-    version="0.1.0",
-    description="Analyze music and generate xLights light show sequences",
+    instructions="Analyze music and generate xLights light show sequences. "
+    "Use list_shows/switch_show to manage show folders, analyze_song to analyze music, "
+    "and create_sequence to generate .xsq files.",
 )
 
 # Global config — loaded at startup
