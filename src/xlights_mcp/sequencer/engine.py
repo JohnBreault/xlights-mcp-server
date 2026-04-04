@@ -228,8 +228,16 @@ def _generate_auto(
         effects=effects,
     )
 
-    # Write the .xsq file
-    output_path = Path(show_config.show_path) / f"{mp3_path.stem}.xsq"
+    # Write the .xsq file (never overwrite existing sequences)
+    base_name = mp3_path.stem
+    output_path = Path(show_config.show_path) / f"{base_name}.xsq"
+    if output_path.exists():
+        # Find a non-conflicting name
+        counter = 1
+        while output_path.exists():
+            output_path = Path(show_config.show_path) / f"{base_name} (generated {counter}).xsq"
+            counter += 1
+
     write_xsq(spec, show_config, output_path)
 
     return {

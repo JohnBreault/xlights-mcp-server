@@ -35,24 +35,20 @@ class SongSection(BaseModel):
 
 
 def detect_structure(audio_path: Path, sr: int = 22050) -> list[SongSection]:
-    """Detect song structure (verse/chorus/bridge/etc.) using self-similarity.
+    """Detect song structure (verse/chorus/bridge/etc.).
 
-    Uses MFCCs and chroma features to build a self-similarity matrix,
-    then applies change-point detection to find section boundaries.
-    Labels are assigned based on energy, repetition, and position.
+    Uses a hybrid approach:
+    1. MFCC/chroma self-similarity for boundary detection
+    2. RMS energy for section labeling
+    3. Fallback to energy-based segmentation if too few boundaries found
     """
     logger.info(f"Analyzing song structure: {audio_path}")
     y, sr = librosa.load(str(audio_path), sr=sr, mono=True)
     duration = librosa.get_duration(y=y, sr=sr)
 
     # Extract features for structure analysis
-    # MFCCs capture timbral characteristics
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
-
-    # Chroma captures harmonic/pitch content
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-
-    # Combine features
     features = np.vstack([mfcc, chroma])
 
     # Build self-similarity matrix
@@ -60,20 +56,28 @@ def detect_structure(audio_path: Path, sr: int = 22050) -> list[SongSection]:
         features, mode="affinity", sym=True, bandwidth=1.0
     )
 
-    # Detect boundaries using novelty curve
-    novelty = librosa.segment.novelty(rec)
-    boundary_frames = _detect_boundaries(novelty, min_section_frames=40)
-
-    # Convert to times
+    # Compute novelty curve with adaptive kernel
+    kernel_size = max(8, min(64, features.shape[1] // 20))
+    novelty = _compute_novelty(rec, kernel_size=kernel_size)
+    boundary_frames = _detect_boundaries(novelty, min_section_frames=15, peak_threshold=0.1)
     boundary_times = librosa.frames_to_time(boundary_frames, sr=sr).tolist()
 
-    # Ensure we have start and end
-    if not boundary_times or boundary_times[0] > 1.0:
+    # If we got too few sections, fall back to energy-based segmentation
+    min_sections = max(4, int(duration / 30))  # at least 1 section per 30s
+    if len(boundary_times) < min_sections:
+        logger.info(f"Novelty found only {len(boundary_times)} boundaries, using energy-based fallback")
+        boundary_times = _energy_based_segmentation(y, sr, duration, min_sections)
+
+    # Ensure start and end
+    if not boundary_times or boundary_times[0] > 2.0:
         boundary_times.insert(0, 0.0)
     if boundary_times[-1] < duration - 2.0:
         boundary_times.append(duration)
 
-    # Compute energy per section for labeling
+    # Remove duplicates and sort
+    boundary_times = sorted(set(round(t, 2) for t in boundary_times))
+
+    # Compute energy per section
     rms = librosa.feature.rms(y=y)[0]
     rms_times = librosa.times_like(rms, sr=sr)
 
@@ -81,8 +85,9 @@ def detect_structure(audio_path: Path, sr: int = 22050) -> list[SongSection]:
     for i in range(len(boundary_times) - 1):
         start = boundary_times[i]
         end = boundary_times[i + 1]
+        if end - start < 1.0:  # skip tiny sections
+            continue
 
-        # Get average energy for this section
         mask = (rms_times >= start) & (rms_times < end)
         section_energy = float(np.mean(rms[mask])) if np.any(mask) else 0.0
 
@@ -95,11 +100,65 @@ def detect_structure(audio_path: Path, sr: int = 22050) -> list[SongSection]:
             )
         )
 
-    # Label sections based on energy, position, and repetition
+    # Label sections
     sections = _label_sections(sections, duration, rec, features, sr)
 
     logger.info(f"Detected {len(sections)} sections: {[s.label for s in sections]}")
     return sections
+
+
+def _energy_based_segmentation(
+    y: np.ndarray, sr: int, duration: float, target_sections: int
+) -> list[float]:
+    """Segment based on RMS energy changes when novelty detection underperforms."""
+    rms = librosa.feature.rms(y=y)[0]
+    rms_times = librosa.times_like(rms, sr=sr)
+
+    # Smooth the RMS curve
+    window = max(5, len(rms) // 50)
+    smoothed = np.convolve(rms, np.ones(window) / window, mode="same")
+
+    # Find significant changes in energy (derivative peaks)
+    diff = np.abs(np.diff(smoothed))
+    diff_times = rms_times[:-1]
+
+    # Find peaks in the energy derivative
+    threshold = np.percentile(diff, 85)
+    min_gap = duration / (target_sections * 2)  # minimum gap between boundaries
+
+    boundaries = []
+    for i in range(1, len(diff) - 1):
+        if diff[i] > threshold and diff[i] > diff[i - 1] and diff[i] > diff[i + 1]:
+            t = float(diff_times[i])
+            if not boundaries or (t - boundaries[-1]) >= min_gap:
+                boundaries.append(t)
+
+    # If still too few, just evenly divide
+    if len(boundaries) < target_sections - 1:
+        section_len = duration / target_sections
+        boundaries = [section_len * i for i in range(1, target_sections)]
+
+    return boundaries
+
+
+def _compute_novelty(rec_matrix: np.ndarray, kernel_size: int = 64) -> np.ndarray:
+    """Compute a novelty curve from a recurrence matrix using a checkerboard kernel.
+
+    This replaces librosa.segment.novelty which was removed in librosa 0.11.
+    """
+    n = rec_matrix.shape[0]
+    half = kernel_size // 2
+    novelty = np.zeros(n)
+
+    for i in range(half, n - half):
+        # Checkerboard kernel: compare top-left/bottom-right vs top-right/bottom-left
+        tl = rec_matrix[i - half : i, i - half : i].mean()
+        br = rec_matrix[i : i + half, i : i + half].mean()
+        tr = rec_matrix[i - half : i, i : i + half].mean()
+        bl = rec_matrix[i : i + half, i - half : i].mean()
+        novelty[i] = max(0, (tl + br) / 2 - (tr + bl) / 2)
+
+    return novelty
 
 
 def _detect_boundaries(
