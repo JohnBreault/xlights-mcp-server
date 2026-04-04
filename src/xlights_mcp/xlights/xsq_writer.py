@@ -189,10 +189,13 @@ def write_xsq(
     # <TimingTags>
     ET.SubElement(root, "TimingTags")
 
-    # Write to file
+    # Write to file — use double quotes in XML declaration to match xLights format
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
-    tree.write(output_path, encoding="UTF-8", xml_declaration=True)
+
+    with open(output_path, "w", encoding="UTF-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+        tree.write(f, encoding="unicode", xml_declaration=False)
 
     logger.info(f"Wrote sequence to {output_path}")
     return output_path
