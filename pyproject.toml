@@ -1,0 +1,48 @@
+[project]
+name = "xlights-mcp-server"
+version = "0.1.0"
+description = "MCP server for generating xLights sequences from music analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "librosa>=0.10.0",
+    "numpy>=1.24.0",
+    "pyloudnorm>=0.1.1",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "lxml>=5.0.0",
+    "soundfile>=0.12.0",
+]
+
+[project.optional-dependencies]
+separation = [
+    "demucs>=4.0.0",
+    "torch>=2.0.0",
+]
+beats = [
+    "madmom>=0.16.1",
+]
+all = [
+    "xlights-mcp-server[separation,beats]",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+]
+
+[project.scripts]
+xlights-mcp-server = "xlights_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
