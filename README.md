@@ -1,6 +1,6 @@
 # xLights MCP Server
 
-An MCP (Model Context Protocol) server that analyzes music and generates [xLights](https://xlights.org/) light show sequences. It integrates with [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) so you can create sequences through natural conversation.
+An MCP (Model Context Protocol) server that analyzes music and generates [xLights](https://xlights.org/) light show sequences. Works with any MCP-compatible AI tool — [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli), [Claude Desktop](https://claude.ai/download), [Cursor](https://cursor.sh), [VS Code + Copilot Chat](https://code.visualstudio.com/), [Windsurf](https://codeium.com/windsurf), [Cline](https://github.com/cline/cline), and more.
 
 Give it an `.mp3`, and it will analyze the beats, song structure, and energy — then generate a valid `.xsq` sequence file with effects placed across all of your light models, synced to the music.
 
@@ -38,9 +38,8 @@ Give it an `.mp3`, and it will analyze the beats, song structure, and energy —
 
 - **Python 3.11+**
 - **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
-- **ffmpeg** — for audio format handling (`brew install ffmpeg` on macOS)
+- **ffmpeg** — for audio format handling (`brew install ffmpeg` on macOS, `apt install ffmpeg` on Linux)
 - **xLights** — installed with at least one show folder configured
-- **GitHub Copilot CLI** — for the conversational interface
 
 ---
 
@@ -60,47 +59,58 @@ uv venv
 uv pip install -e .
 ```
 
-**Optional extras:**
+**Optional extras for enhanced features:**
 
 ```bash
-# For Demucs stem separation (vocals/drums/bass isolation) — requires ~2GB for models
+# Stem separation — isolates vocals/drums/bass for smarter sequencing (~2GB model download)
 uv pip install -e ".[separation]"
 
-# For madmom (more accurate beat/downbeat detection)
+# Lyrics/singing faces — transcribes vocals for lip-sync animation
+uv pip install -e ".[lyrics]"
+
+# Better beat detection
 uv pip install -e ".[beats]"
 
 # Everything
 uv pip install -e ".[all]"
 ```
 
-### Step 3: Configure your show folders
+### Step 3: Show folder configuration
 
-The server auto-creates a default config on first run. To customize, create or edit `~/.xlights-mcp/config.json`:
+On first run, the server **auto-detects** your xLights show folders by scanning common locations:
+
+| OS | Locations checked |
+|----|-------------------|
+| macOS | `~/Library/Mobile Documents/com~apple~CloudDocs/xLights/`, `~/Documents/xLights/` |
+| Windows | `~/Documents/xLights/` |
+| Linux | `~/Documents/xLights/`, `~/xLights/`, `/opt/xLights/` |
+
+It looks for directories containing `xlights_rgbeffects.xml` (the file xLights creates in every show folder).
+
+**If auto-detection doesn't find your folders**, create or edit `~/.xlights-mcp/config.json`:
 
 ```json
 {
   "show_folders": {
-    "christmas": "~/Library/Mobile Documents/com~apple~CloudDocs/xLights/Christmas",
-    "halloween": "~/Library/Mobile Documents/com~apple~CloudDocs/xLights/Halloween",
-    "baseline": "~/Library/Mobile Documents/com~apple~CloudDocs/xLights/house-baseline"
+    "christmas": "/path/to/your/xLights/Christmas",
+    "halloween": "/path/to/your/xLights/Halloween"
   },
   "active_show": "christmas",
   "fpp": {
-    "host": "rudolph.local",
+    "host": "fpp.local",
     "port": 80
-  },
-  "audio": {
-    "cache_dir": "~/.xlights-mcp/audio_cache",
-    "demucs_model": "htdemucs"
   }
 }
 ```
 
-Update the `show_folders` paths to match your xLights show directory locations.
+### Step 4: Connect to your AI tool
 
-### Step 4: Register with Copilot CLI
+The server uses **stdio transport** — your AI tool launches it as a subprocess.
 
-Add the server to `~/.copilot/mcp-config.json`:
+<details>
+<summary><strong>GitHub Copilot CLI</strong></summary>
+
+Add to `~/.copilot/mcp-config.json`:
 
 ```json
 {
@@ -113,17 +123,76 @@ Add the server to `~/.copilot/mcp-config.json`:
 }
 ```
 
+Restart Copilot CLI after saving.
+</details>
+
+<details>
+<summary><strong>Claude Desktop</strong></summary>
+
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "xlights": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/xlights-mcp-server", "xlights-mcp-server"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving.
+</details>
+
+<details>
+<summary><strong>VS Code + Copilot Chat</strong></summary>
+
+Add to your VS Code `settings.json`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "xlights": {
+        "command": "uv",
+        "args": ["run", "--directory", "/path/to/xlights-mcp-server", "xlights-mcp-server"]
+      }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>Cursor</strong></summary>
+
+Add to Cursor MCP settings (Settings → MCP Servers → Add):
+
+- **Name:** xlights
+- **Command:** `uv`
+- **Args:** `run --directory /path/to/xlights-mcp-server xlights-mcp-server`
+</details>
+
+<details>
+<summary><strong>Other MCP clients</strong></summary>
+
+Any tool that supports the [Model Context Protocol](https://modelcontextprotocol.io/) can use this server. Point it at:
+
+```
+command: uv
+args: run --directory /path/to/xlights-mcp-server xlights-mcp-server
+transport: stdio
+```
+</details>
+
 Replace `/path/to/xlights-mcp-server` with the actual path where you cloned the repo.
-
-### Step 5: Restart Copilot CLI
-
-Close and reopen your terminal, or restart the Copilot CLI session. The xLights tools will now be available.
 
 ---
 
 ## Usage
 
-Once installed, interact with the server through Copilot CLI using natural language. Here are some example workflows:
+Once connected, interact with the server through natural language in your AI tool. Here are some example workflows:
 
 ### Explore your show
 
@@ -280,14 +349,19 @@ xlights-mcp-server/
 
 ## Troubleshooting
 
-**MCP server not loading in Copilot CLI**
-- Verify your `~/.copilot/mcp-config.json` is valid JSON (no comments allowed)
-- Check the path in `--directory` points to the repo root
-- Restart Copilot CLI after config changes
+**MCP server not loading**
+- Verify your MCP config file is valid JSON (no comments, no trailing commas)
+- Check the `--directory` path points to the repo root (where `pyproject.toml` is)
+- Restart your AI tool after config changes
+- Test manually: `cd /path/to/xlights-mcp-server && uv run xlights-mcp-server` — should start without errors
+
+**"No xLights show folders found"**
+- Make sure xLights is installed and you've opened it at least once (it creates `xlights_rgbeffects.xml` in each show folder)
+- If your show folder is in a non-standard location, add it to `~/.xlights-mcp/config.json`
 
 **"No models found" error**
-- Make sure `show_folders` in `~/.xlights-mcp/config.json` points to valid xLights show directories
-- The directory should contain `xlights_networks.xml` and `xlights_rgbeffects.xml`
+- Verify the show folder contains `xlights_networks.xml` and `xlights_rgbeffects.xml`
+- Use `list_shows` to check which show is active and whether the path exists
 
 **Audio analysis is slow**
 - First run downloads librosa data (~10MB); subsequent runs are faster
