@@ -22,7 +22,7 @@ import logging
 import random
 from pathlib import Path
 
-from xlights_mcp.audio.analyzer import SongAnalysis, full_analysis
+from xlights_mcp.audio.analyzer import SongAnalysis, StemAnalysis, full_analysis
 from xlights_mcp.audio.structure import SongSection
 from xlights_mcp.config import AudioConfig
 from xlights_mcp.xlights.models import LightModel, ShowConfig
@@ -234,6 +234,76 @@ ACCENT_EFFECTS: dict[str, list[str]] = {
 # Section energy thresholds
 HIGH_ENERGY_THRESHOLD = 0.65
 LOW_ENERGY_THRESHOLD = 0.35
+
+
+# ---------------------------------------------------------------------------
+# Stem-driven effect overrides — when a stem dominates, shift effect choices
+# ---------------------------------------------------------------------------
+
+# Motion effects to prefer when a specific stem dominates the section
+STEM_MOTION_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    "drums": {
+        "arch": ["Chase_left", "Chase_right", "Chase_bounce"],
+        "tree": ["Meteors_rain", "Meteors_explode"],
+        "single_line": ["Chase_left", "Chase_right", "Chase_bounce"],
+        "poly_line": ["Chase_left", "Chase_right"],
+        "window": ["Marquee_default"],
+        "custom": ["Plasma_fast", "Warp_wavy"],
+        "other": ["Chase_from_middle", "ColorWash_fast"],
+    },
+    "bass": {
+        "arch": ["ColorWash_fast", "Chase_from_middle"],
+        "tree": ["Spirals_slow", "Pinwheel_sweep"],
+        "single_line": ["ColorWash_fast", "Chase_from_middle"],
+        "poly_line": ["ColorWash_fast"],
+        "window": ["ColorWash_fast"],
+        "custom": ["Plasma_slow", "Warp_mirror"],
+        "other": ["ColorWash_fast"],
+    },
+    "vocals": {
+        "arch": ["ColorWash_slow", "Twinkle_ambient"],
+        "tree": ["Spirals_slow", "Plasma_slow"],
+        "single_line": ["ColorWash_slow"],
+        "poly_line": ["ColorWash_slow"],
+        "window": ["ColorWash_slow"],
+        "custom": ["Butterfly_gentle", "Twinkle_ambient"],
+        "other": ["ColorWash_slow"],
+    },
+    "other": {
+        "arch": ["Chase_left", "Chase_right", "Chase_from_middle"],
+        "tree": ["Spirals_fast", "Spirals_reverse", "Pinwheel_sweep"],
+        "single_line": ["Chase_left", "Chase_right"],
+        "poly_line": ["Chase_left", "Chase_right"],
+        "window": ["Marquee_default"],
+        "custom": ["Plasma_fast", "Warp_wavy", "Warp_mirror"],
+        "other": ["Chase_from_middle"],
+    },
+}
+
+# Accent effects to prefer when a specific stem dominates
+STEM_ACCENT_OVERRIDES: dict[str, list[str]] = {
+    "drums": ["Shockwave_hit", "Morph_quick"],
+    "bass": ["Morph_quick"],
+    "vocals": [],  # suppress accents during vocal sections
+    "other": ["Shockwave_hit"],
+}
+
+# Section-type → effect palette guidance
+SECTION_TYPE_CONFIG: dict[str, dict] = {
+    "intro": {"use_motion": False, "use_accents": False, "bed_override": "ColorWash_slow"},
+    "outro": {"use_motion": False, "use_accents": False, "bed_override": "Twinkle_ambient"},
+    "verse": {"use_motion": True, "use_accents": False},
+    "chorus": {"use_motion": True, "use_accents": True},
+    "bridge": {"use_motion": True, "use_accents": True,
+               "motion_override": {"tree": ["Pinwheel_sweep", "Spirals_reverse"],
+                                   "custom": ["Warp_mirror", "Warp_wavy"],
+                                   "arch": ["Chase_bounce"],
+                                   "single_line": ["Chase_bounce"],
+                                   "poly_line": ["Chase_bounce"]}},
+    "transition": {"use_motion": False, "use_accents": False, "bed_override": "ColorWash_slow"},
+    "unknown": {"use_motion": True, "use_accents": False},
+    "instrumental": {"use_motion": True, "use_accents": True},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -453,28 +523,42 @@ def _generate_auto(
     if singing_models:
         logger.info(f"Singing models excluded from regular pipeline: {list(singing_models.keys())}")
 
+    # Track last motion effect key to avoid consecutive repeats
+    last_motion_key_per_group: dict[str, str] = {}
+
     # Helper to generate effects for a model category and apply to a list of model names
     def generate_for_models(model_names: list[str], cat: str, group_seed: str):
         group_rng = random.Random(hash(group_seed + mp3_path.stem))
+        stem_data: StemAnalysis = analysis.stem_analysis
 
         for sec_idx, section in enumerate(analysis.sections):
             is_high = section.energy_level >= HIGH_ENERGY_THRESHOLD
             is_low = section.energy_level < LOW_ENERGY_THRESHOLD
-            is_intro = section.label == "intro" or (sec_idx == 0 and section.duration < 15)
-            is_outro = section.label == "outro" or (sec_idx == len(analysis.sections) - 1)
 
             pal_idx = (sec_idx // 2 + hash(group_seed)) % len(palette_pool)
             palette = palette_pool[pal_idx]
 
             downbeats_in_section = section_downbeats.get(sec_idx, [])
 
+            # Determine section type config
+            sec_config = SECTION_TYPE_CONFIG.get(section.label, SECTION_TYPE_CONFIG["unknown"])
+            use_motion = sec_config.get("use_motion", True) and not is_low
+            use_accents = sec_config.get("use_accents", False) and is_high
+
+            # Determine dominant stem for this section
+            dom_stem = "other"
+            if stem_data.available:
+                dom_stem = stem_data.dominant_stem(section.start_time, section.end_time)
+
             # --- LAYER 0: Background bed ---
-            bed_choices = BED_EFFECTS.get(cat, BED_EFFECTS["other"])
-            if is_high:
+            bed_override = sec_config.get("bed_override")
+            if bed_override:
+                bed_key = bed_override
+            elif is_high:
+                bed_choices = BED_EFFECTS.get(cat, BED_EFFECTS["other"])
                 bed_key = "Twinkle_dense" if "Twinkle_ambient" in bed_choices else bed_choices[0]
-            elif is_intro or is_outro:
-                bed_key = "ColorWash_slow"
             else:
+                bed_choices = BED_EFFECTS.get(cat, BED_EFFECTS["other"])
                 bed_key = group_rng.choice(bed_choices)
 
             bed_settings = _get_settings(bed_key)
@@ -487,18 +571,35 @@ def _generate_auto(
                     settings=bed_settings, palette=palette,
                 ))
 
-            # --- LAYER 1: Motion (skip for intro/outro/low energy) ---
-            if not is_intro and not is_outro and not is_low:
-                motion_choices = MOTION_EFFECTS.get(cat, MOTION_EFFECTS["other"])
-                if cat in ("arch", "single_line", "poly_line") and len(motion_choices) > 1:
-                    motion_key = motion_choices[sec_idx % len(motion_choices)]
+            # --- LAYER 1: Motion (stem-reactive, section-varied) ---
+            if use_motion:
+                # Pick motion choices based on stem dominance and section type
+                motion_override = sec_config.get("motion_override", {}).get(cat)
+                if motion_override:
+                    motion_choices = motion_override
+                elif stem_data.available and dom_stem in STEM_MOTION_OVERRIDES:
+                    stem_motions = STEM_MOTION_OVERRIDES[dom_stem].get(cat)
+                    motion_choices = stem_motions if stem_motions else MOTION_EFFECTS.get(cat, MOTION_EFFECTS["other"])
                 else:
-                    motion_key = group_rng.choice(motion_choices)
+                    motion_choices = MOTION_EFFECTS.get(cat, MOTION_EFFECTS["other"])
 
-                motion_settings = _get_settings(motion_key)
+                # Avoid repeating the same motion as the previous section
+                last_key = last_motion_key_per_group.get(group_seed)
+                available = [k for k in motion_choices if k != last_key]
+                if not available:
+                    available = motion_choices
 
                 if len(downbeats_in_section) >= 2:
+                    # Vary effect every 2-4 bars within the section
+                    bars_per_variant = 2 if is_high else 4
+                    variant_idx = 0
                     for j in range(len(downbeats_in_section) - 1):
+                        if j > 0 and j % bars_per_variant == 0:
+                            variant_idx += 1
+
+                        motion_key = available[variant_idx % len(available)]
+                        motion_settings = _get_settings(motion_key)
+
                         start_ms = int(downbeats_in_section[j] * 1000)
                         end_ms = int(downbeats_in_section[j + 1] * 1000)
                         motion_pal_idx = (pal_idx + j // 2) % len(palette_pool)
@@ -510,7 +611,10 @@ def _generate_auto(
                                 settings=motion_settings,
                                 palette=palette_pool[motion_pal_idx],
                             ))
+                    last_motion_key_per_group[group_seed] = motion_key
                 else:
+                    motion_key = group_rng.choice(available)
+                    motion_settings = _get_settings(motion_key)
                     for name in model_names:
                         all_effects.append(EffectPlacement(
                             model_name=name, layer=1,
@@ -519,28 +623,44 @@ def _generate_auto(
                             end_time_ms=section.end_time_ms,
                             settings=motion_settings, palette=palette,
                         ))
+                    last_motion_key_per_group[group_seed] = motion_key
 
-            # --- LAYER 2: Accent hits (high energy only, selective beats) ---
-            if is_high and downbeats_in_section:
-                accent_choices = ACCENT_EFFECTS.get(cat, ACCENT_EFFECTS["other"])
+            # --- LAYER 2: Accent hits (stem-reactive timing) ---
+            if use_accents:
+                # Choose accent effects based on dominant stem
+                stem_accent = STEM_ACCENT_OVERRIDES.get(dom_stem, ["Shockwave_hit"])
+                if not stem_accent:
+                    # Vocals dominant → skip accents to not compete with faces
+                    continue
+
+                accent_choices = stem_accent
                 accent_key = group_rng.choice(accent_choices)
                 accent_settings = _get_settings(accent_key)
 
-                accent_interval = 2 if section.energy_level > 0.85 else 4
-                for j, db_time in enumerate(downbeats_in_section):
-                    if j % accent_interval != 0:
-                        continue
-                    db_ms = int(db_time * 1000)
-                    beat_dur_ms = int(60000 / max(analysis.beats.tempo, 60))
-                    accent_dur = min(beat_dur_ms, 500)
-                    accent_pal_idx = (pal_idx + j) % len(palette_pool)
+                # Use drum onsets for timing when available, fall back to downbeats
+                if stem_data.available and "drums" in stem_data.stems:
+                    accent_times = stem_data.get_onsets_in_range(
+                        "drums", section.start_time, section.end_time
+                    )
+                    # Thin out to every 2nd or 4th hit to avoid over-accenting
+                    accent_interval = 2 if section.energy_level > 0.85 else 4
+                    accent_times = accent_times[::accent_interval]
+                else:
+                    accent_interval = 2 if section.energy_level > 0.85 else 4
+                    accent_times = [db for i, db in enumerate(downbeats_in_section) if i % accent_interval == 0]
 
+                beat_dur_ms = int(60000 / max(analysis.beats.tempo, 60))
+                accent_dur = min(beat_dur_ms, 500)
+
+                for j, t in enumerate(accent_times):
+                    t_ms = int(t * 1000)
+                    accent_pal_idx = (pal_idx + j) % len(palette_pool)
                     for name in model_names:
                         all_effects.append(EffectPlacement(
                             model_name=name, layer=2,
                             effect_name=_effect_name_from_key(accent_key),
-                            start_time_ms=db_ms,
-                            end_time_ms=db_ms + accent_dur,
+                            start_time_ms=t_ms,
+                            end_time_ms=t_ms + accent_dur,
                             settings=accent_settings,
                             palette=palette_pool[accent_pal_idx],
                         ))
@@ -555,8 +675,41 @@ def _generate_auto(
     for model in ungrouped:
         generate_for_models([model.name], model.model_category, model.name)
 
-    # --- Singing Faces: multi-track extraction + vocal assignment ---
+    # --- Instrument timing tracks from stem onsets ---
     timing_tracks: list[TimingTrack] = []
+
+    if analysis.stem_analysis.available:
+        stem_track_map = {
+            "drums": "Drums",
+            "bass": "Bass",
+            "other": "Instruments",
+        }
+        beat_dur_ms = int(60000 / max(analysis.beats.tempo, 60))
+        onset_label_dur = min(beat_dur_ms // 2, 200)  # label duration for onset markers
+
+        for stem_name, track_name in stem_track_map.items():
+            if stem_name not in analysis.stem_analysis.stems:
+                continue
+            stem = analysis.stem_analysis.stems[stem_name]
+            if not stem.onset_times:
+                continue
+
+            labels = []
+            for t in stem.onset_times:
+                t_ms = int(t * 1000)
+                labels.append(TimingTrackLabel(
+                    label="x",
+                    start_time_ms=t_ms,
+                    end_time_ms=t_ms + onset_label_dur,
+                ))
+
+            timing_tracks.append(TimingTrack(
+                name=track_name,
+                labels=[labels],
+            ))
+            logger.info(f"Added '{track_name}' timing track: {len(labels)} onsets")
+
+    # --- Singing Faces: multi-track extraction + vocal assignment ---
     has_lyrics = False
     resolved_assignments: dict[str, str] = {}
 
