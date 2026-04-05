@@ -325,8 +325,16 @@ def generate_sequence(
     palette_hint: str | None = None,
     theme: str | None = None,
     audio_config: AudioConfig | None = None,
+    vocal_assignments: dict[str, str] | None = None,
 ) -> dict:
-    """Generate a complete xLights sequence from a music file."""
+    """Generate a complete xLights sequence from a music file.
+
+    Args:
+        vocal_assignments: Optional mapping of model_name → vocal track name.
+            Use "all" as key to assign a track to all singing models.
+            If None and singing models exist, returns discovery info instead
+            of generating, so the caller can prompt the user.
+    """
     if not show_path or not show_path.exists():
         return {"error": f"Show path not found: {show_path}"}
 
@@ -337,7 +345,10 @@ def generate_sequence(
     analysis = full_analysis(mp3_path, audio_config)
 
     if mode == "auto":
-        return _generate_auto(analysis, show_config, mp3_path, palette_hint, theme)
+        return _generate_auto(
+            analysis, show_config, mp3_path, palette_hint, theme,
+            vocal_assignments=vocal_assignments,
+        )
     elif mode == "guided":
         return _generate_guided_preview(analysis, show_config)
     elif mode == "template":
@@ -391,6 +402,7 @@ def _generate_auto(
     mp3_path: Path,
     palette_hint: str | None,
     theme: str | None,
+    vocal_assignments: dict[str, str] | None = None,
 ) -> dict:
     """Professional-quality automatic sequence generation.
 
@@ -543,45 +555,91 @@ def _generate_auto(
     for model in ungrouped:
         generate_for_models([model.name], model.model_category, model.name)
 
-    # --- Singing Faces: dedicated pipeline (separate from regular effects) ---
+    # --- Singing Faces: multi-track extraction + vocal assignment ---
     timing_tracks: list[TimingTrack] = []
     has_lyrics = False
+    resolved_assignments: dict[str, str] = {}
 
     if singing_models:
-        lyric_track = _try_extract_lyrics(mp3_path)
-        if lyric_track and lyric_track.available and lyric_track.phonemes:
+        # Extract all available vocal tracks
+        vocal_tracks = _try_extract_vocal_tracks(mp3_path)
+
+        if vocal_tracks:
             has_lyrics = True
-            track_name = lyric_track.track_name
 
-            # Build timing track with 3 layers matching xLights format:
-            # Layer 0: word syllables (for display)
-            # Layer 1: word syllables (duplicate, matching pro sequences)
-            # Layer 2: phoneme codes (AI, FV, L, MBP, O, U, WQ, E — what Faces reads)
-            word_labels = []
-            for w in lyric_track.words:
-                word_labels.append(TimingTrackLabel(
-                    label=w.word,
-                    start_time_ms=int(w.start_time * 1000),
-                    end_time_ms=int(w.end_time * 1000),
+            # If no vocal_assignments provided, return discovery info for the agent
+            if vocal_assignments is None:
+                singing_info = []
+                for mname, fdef in singing_models.items():
+                    singing_info.append({
+                        "model_name": mname,
+                        "face_definition": fdef,
+                    })
+                track_info = []
+                for t in vocal_tracks:
+                    track_info.append({
+                        "track_name": t.track_name,
+                        "source": t.source,
+                        "word_count": len(t.words),
+                    })
+                return {
+                    "needs_vocal_assignment": True,
+                    "singing_models": singing_info,
+                    "vocal_tracks": track_info,
+                    "message": (
+                        "Singing face models and vocal tracks detected. "
+                        "Please assign vocal tracks to models using the vocal_assignments parameter. "
+                        "Pass a dict mapping model names to track names, "
+                        'or use {"all": "<track_name>"} to assign one track to all singing models.'
+                    ),
+                }
+
+            # Resolve "all" shorthand → expand to every singing model
+            resolved_assignments: dict[str, str] = {}
+            if "all" in vocal_assignments:
+                track_name = vocal_assignments["all"]
+                for mname in singing_models:
+                    resolved_assignments[mname] = track_name
+            else:
+                resolved_assignments = dict(vocal_assignments)
+
+            # Build a timing track name → LyricTrack lookup
+            track_lookup: dict[str, "LyricTrack"] = {t.track_name: t for t in vocal_tracks}
+
+            # Add ALL vocal timing tracks to the sequence (not just assigned ones)
+            for lyric_track in vocal_tracks:
+                word_labels = []
+                for w in lyric_track.words:
+                    word_labels.append(TimingTrackLabel(
+                        label=w.word,
+                        start_time_ms=int(w.start_time * 1000),
+                        end_time_ms=int(w.end_time * 1000),
+                    ))
+                phoneme_labels = []
+                for p in lyric_track.phonemes:
+                    phoneme_labels.append(TimingTrackLabel(
+                        label=p.phoneme,
+                        start_time_ms=p.start_time_ms,
+                        end_time_ms=p.end_time_ms,
+                    ))
+                timing_tracks.append(TimingTrack(
+                    name=lyric_track.track_name,
+                    labels=[word_labels, word_labels, phoneme_labels],
                 ))
 
-            phoneme_labels = []
-            for p in lyric_track.phonemes:
-                phoneme_labels.append(TimingTrackLabel(
-                    label=p.phoneme,
-                    start_time_ms=p.start_time_ms,
-                    end_time_ms=p.end_time_ms,
-                ))
+            logger.info(f"Added {len(timing_tracks)} timing tracks to sequence")
 
-            timing_tracks.append(TimingTrack(
-                name=track_name,
-                labels=[word_labels, word_labels, phoneme_labels],
-            ))
-
-            # Place effects on singing models:
-            #   Layer 0: Background body effect (keeps body illuminated)
-            #   Layer 1: Faces effect (renders face animation ON TOP)
+            # Place effects on singing models based on assignments
             for model_name, face_def in singing_models.items():
+                assigned_track_name = resolved_assignments.get(model_name)
+                assigned_track = track_lookup.get(assigned_track_name) if assigned_track_name else None
+
+                if not assigned_track:
+                    # No assignment for this model — use the first available track
+                    assigned_track = vocal_tracks[0]
+                    assigned_track_name = assigned_track.track_name
+                    logger.info(f"No assignment for '{model_name}', defaulting to '{assigned_track_name}'")
+
                 singing_rng = random.Random(hash(model_name + mp3_path.stem))
 
                 # Layer 0: Section-aware background that illuminates the whole model
@@ -607,14 +665,14 @@ def _generate_auto(
                         settings=bed_settings, palette=palette,
                     ))
 
-                # Layer 1: Faces effect spanning the full song
+                # Layer 1: Faces effect with the assigned vocal track
                 faces_settings = {
                     "E_CHECKBOX_Faces_Outline": "1",
                     "E_CHOICE_Faces_EyeBlinkDuration": "Normal",
                     "E_CHOICE_Faces_EyeBlinkFrequency": "Normal",
                     "E_CHOICE_Faces_Eyes": "Auto",
                     "E_CHOICE_Faces_FaceDefinition": face_def,
-                    "E_CHOICE_Faces_TimingTrack": track_name,
+                    "E_CHOICE_Faces_TimingTrack": assigned_track_name,
                     "T_TEXTCTRL_Fadein": "0.5",
                     "T_TEXTCTRL_Fadeout": "0.5",
                 }
@@ -628,12 +686,15 @@ def _generate_auto(
                     palette=all_palettes[0] if all_palettes else ColorPalette(),
                 ))
 
-            logger.info(f"Added singing pipeline for {list(singing_models.keys())} (L0=body, L1=Faces)")
+            logger.info(
+                f"Added singing pipeline for {list(singing_models.keys())} "
+                f"with assignments: {resolved_assignments}"
+            )
         else:
             # Lyrics unavailable — treat singing models as regular custom models
             for model_name in singing_models:
                 generate_for_models([model_name], "custom", model_name)
-            logger.info(f"Lyrics unavailable — singing models treated as regular custom models")
+            logger.info("Lyrics unavailable — singing models treated as regular custom models")
 
     # Build sequence spec
     spec = SequenceSpec(
@@ -670,7 +731,9 @@ def _generate_auto(
         "unique_palettes": len(all_palettes),
         "model_groups": len(groups),
         "has_lyrics": has_lyrics,
+        "timing_tracks": [t.name for t in timing_tracks],
         "singing_models": list(singing_models.keys()) if has_lyrics else [],
+        "vocal_assignments": resolved_assignments if has_lyrics and singing_models else {},
         "message": f"Sequence created: {output_path.name}. Open in xLights to preview and render.",
     }
 
@@ -788,3 +851,25 @@ def _try_extract_lyrics(mp3_path: Path):
     except Exception as e:
         logger.warning(f"Lyric extraction failed: {e}")
         return None
+
+
+def _try_extract_vocal_tracks(mp3_path: Path) -> list:
+    """Try to extract all vocal timing tracks. Returns empty list if unavailable."""
+    try:
+        from xlights_mcp.audio.lyrics import extract_vocal_tracks
+        tracks = extract_vocal_tracks(mp3_path, whisper_model="base")
+        return [t for t in tracks if t.available and t.phonemes]
+    except ImportError:
+        logger.info("Whisper not installed — skipping vocal track extraction")
+        # Fall back to single-track extraction
+        track = _try_extract_lyrics(mp3_path)
+        if track and track.available and track.phonemes:
+            return [track]
+        return []
+    except Exception as e:
+        logger.warning(f"Vocal track extraction failed: {e}")
+        # Fall back to single-track extraction
+        track = _try_extract_lyrics(mp3_path)
+        if track and track.available and track.phonemes:
+            return [track]
+        return []

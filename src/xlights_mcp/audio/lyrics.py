@@ -50,6 +50,7 @@ class LyricTrack(BaseModel):
     words: list[LyricWord] = Field(default_factory=list)
     phonemes: list[PhonemeEvent] = Field(default_factory=list)
     track_name: str = "Lyric Track"
+    source: str = "full_mix"  # "full_mix", "vocals_stem", etc.
     available: bool = False
 
 
@@ -175,8 +176,61 @@ def extract_lyrics(
         words=words,
         phonemes=phonemes,
         track_name="Lyric Track",
+        source="full_mix",
         available=True,
     )
+
+
+def extract_vocal_tracks(
+    audio_path: Path,
+    whisper_model: str = "base",
+) -> list[LyricTrack]:
+    """Extract all available vocal timing tracks from an audio file.
+
+    Attempts stem separation (Demucs) to get a clean vocals track,
+    then runs Whisper on each available source. Returns all tracks
+    found so they can be independently assigned to singing models.
+
+    Returns:
+        List of LyricTrack objects (may be empty if no vocals detected).
+        Each track has a unique track_name and source identifier.
+    """
+    tracks: list[LyricTrack] = []
+
+    # Try stem separation for a clean vocals track
+    vocals_stem_path: Path | None = None
+    try:
+        from xlights_mcp.audio.separator import separate_stems
+        stems = separate_stems(audio_path)
+        if stems.available and stems.vocals:
+            vocals_stem_path = Path(stems.vocals)
+            if vocals_stem_path.exists():
+                logger.info(f"Vocals stem available: {vocals_stem_path}")
+    except Exception as e:
+        logger.info(f"Stem separation unavailable: {e}")
+
+    # Track 1: Transcribe the isolated vocals stem (cleanest source)
+    if vocals_stem_path:
+        stem_track = extract_lyrics(vocals_stem_path, whisper_model=whisper_model)
+        if stem_track.available:
+            stem_track.track_name = "Vocals"
+            stem_track.source = "vocals_stem"
+            tracks.append(stem_track)
+            logger.info(f"Extracted 'Vocals' track from stem: {len(stem_track.words)} words")
+
+    # Track 2: Transcribe the full mix (captures backing vocals too)
+    mix_track = extract_lyrics(audio_path, whisper_model=whisper_model)
+    if mix_track.available:
+        # Name depends on whether we already have a stem track
+        if tracks:
+            mix_track.track_name = "Full Mix Vocals"
+        else:
+            mix_track.track_name = "Vocals"
+        mix_track.source = "full_mix"
+        tracks.append(mix_track)
+        logger.info(f"Extracted '{mix_track.track_name}' track from mix: {len(mix_track.words)} words")
+
+    return tracks
 
 
 def _words_to_phonemes(words: list[LyricWord]) -> list[PhonemeEvent]:

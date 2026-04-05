@@ -257,6 +257,7 @@ def create_sequence(
     mode: str = "auto",
     palette_hint: str | None = None,
     theme: str | None = None,
+    vocal_assignments: dict[str, str] | None = None,
 ) -> dict:
     """Create an xLights sequence from a music file.
 
@@ -269,6 +270,11 @@ def create_sequence(
               or "template" (apply saved recipes)
         palette_hint: Optional color hint (e.g., "red and green", "orange and purple")
         theme: Optional theme hint (e.g., "christmas", "halloween", "energetic")
+        vocal_assignments: Optional mapping of model names to vocal track names.
+            Use {"all": "<track_name>"} to assign one track to all singing models,
+            or map individual models like {"Snowman": "Vocals", "Bulb Blue": "Full Mix Vocals"}.
+            If omitted and singing models are detected, returns available models and
+            tracks so you can prompt the user for assignments.
     """
     from xlights_mcp.sequencer.engine import generate_sequence
 
@@ -287,6 +293,7 @@ def create_sequence(
         palette_hint=palette_hint,
         theme=theme,
         audio_config=config.audio,
+        vocal_assignments=vocal_assignments,
     )
     return result
 
