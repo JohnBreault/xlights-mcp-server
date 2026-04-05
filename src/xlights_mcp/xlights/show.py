@@ -95,7 +95,13 @@ def load_show_models(show_path: Path) -> list[LightModel]:
         if m.tag == "model":
             # Collect submodels (child elements)
             submodels = []
+            face_definitions = []
             for child in m:
+                if child.tag == "faceInfo":
+                    face_name = child.get("Name", "")
+                    if face_name:
+                        face_definitions.append(face_name)
+                    continue
                 if child.tag in ("subModel", "strandNames", "nodeNames"):
                     continue
                 child_name = child.get("name", "")
@@ -124,6 +130,7 @@ def load_show_models(show_path: Path) -> list[LightModel]:
                 pixel_count=pixel_count,
                 string_type=m.get("StringType", "RGB Nodes"),
                 submodels=submodels,
+                face_definitions=face_definitions,
             )
             models.append(model)
 

@@ -36,6 +36,7 @@ class LightModel(BaseModel):
     pixel_count: int = 0
     string_type: str = "RGB Nodes"
     submodels: list[SubModel] = Field(default_factory=list)
+    face_definitions: list[str] = Field(default_factory=list)  # e.g. ["Standing Snowman Singing Face"]
 
     @property
     def model_category(self) -> str:

@@ -496,9 +496,11 @@ def _generate_auto(
     timing_tracks: list[TimingTrack] = []
     has_lyrics = False
 
-    # Detect singing models (Snowman, Bulbs)
-    singing_models = [m.name for m in show_config.models
-                      if any(kw in m.name.lower() for kw in ("snowman", "bulb"))]
+    # Detect singing models — models that have face definitions
+    singing_models: dict[str, str] = {}  # model_name → face_definition_name
+    for m in show_config.models:
+        if m.face_definitions:
+            singing_models[m.name] = m.face_definitions[0]  # use first face def
 
     if singing_models:
         lyric_track = _try_extract_lyrics(mp3_path)
@@ -506,7 +508,10 @@ def _generate_auto(
             has_lyrics = True
             track_name = lyric_track.track_name
 
-            # Build timing track with 2 layers: words (L0) + phonemes (L1)
+            # Build timing track with 3 layers matching xLights format:
+            # Layer 0: word syllables (for display)
+            # Layer 1: word syllables (duplicate, matching pro sequences)
+            # Layer 2: phoneme codes (AI, FV, L, MBP, O, U, WQ, E — what Faces reads)
             word_labels = []
             for w in lyric_track.words:
                 word_labels.append(TimingTrackLabel(
@@ -525,23 +530,24 @@ def _generate_auto(
 
             timing_tracks.append(TimingTrack(
                 name=track_name,
-                labels=[word_labels, phoneme_labels],
+                labels=[word_labels, word_labels, phoneme_labels],  # 3 layers
             ))
 
             # Place Faces effect on singing models (spans full song)
-            faces_settings = {
-                "E_CHECKBOX_Faces_Outline": "1",
-                "E_CHOICE_Faces_EyeBlinkDuration": "Normal",
-                "E_CHOICE_Faces_EyeBlinkFrequency": "Normal",
-                "E_CHOICE_Faces_Eyes": "Auto",
-                "E_CHOICE_Faces_TimingTrack": track_name,
-                "T_TEXTCTRL_Fadein": "0.5",
-                "T_TEXTCTRL_Fadeout": "0.5",
-            }
-            for model_name in singing_models:
+            for model_name, face_def in singing_models.items():
+                faces_settings = {
+                    "E_CHECKBOX_Faces_Outline": "1",
+                    "E_CHOICE_Faces_EyeBlinkDuration": "Normal",
+                    "E_CHOICE_Faces_EyeBlinkFrequency": "Normal",
+                    "E_CHOICE_Faces_Eyes": "Auto",
+                    "E_CHOICE_Faces_FaceDefinition": face_def,
+                    "E_CHOICE_Faces_TimingTrack": track_name,
+                    "T_TEXTCTRL_Fadein": "0.5",
+                    "T_TEXTCTRL_Fadeout": "0.5",
+                }
                 all_effects.append(EffectPlacement(
                     model_name=model_name,
-                    layer=0,  # Faces on base layer
+                    layer=0,
                     effect_name="Faces",
                     start_time_ms=0,
                     end_time_ms=analysis.duration_ms,
@@ -549,7 +555,7 @@ def _generate_auto(
                     palette=all_palettes[0] if all_palettes else ColorPalette(),
                 ))
 
-            logger.info(f"Added Faces effect on {singing_models} with {len(lyric_track.phonemes)} phonemes")
+            logger.info(f"Added Faces on {list(singing_models.keys())} with face defs: {list(singing_models.values())}")
 
     # Build sequence spec
     spec = SequenceSpec(
@@ -586,7 +592,7 @@ def _generate_auto(
         "unique_palettes": len(all_palettes),
         "model_groups": len(groups),
         "has_lyrics": has_lyrics,
-        "singing_models": singing_models if has_lyrics else [],
+        "singing_models": list(singing_models.keys()) if has_lyrics else [],
         "message": f"Sequence created: {output_path.name}. Open in xLights to preview and render.",
     }
 
