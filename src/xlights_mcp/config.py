@@ -60,22 +60,52 @@ class ServerConfig(BaseModel):
         return list(self.show_folders.keys())
 
 
+def _find_xlights_show_folders() -> dict[str, str]:
+    """Auto-detect xLights show folders from common locations."""
+    candidates = [
+        Path.home() / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "xLights",  # macOS iCloud
+        Path.home() / "Documents" / "xLights",  # macOS/Windows default
+        Path.home() / "xLights",  # Linux / simple
+        Path("/opt/xLights"),  # Linux system-wide
+    ]
+
+    folders: dict[str, str] = {}
+    for base in candidates:
+        if not base.exists():
+            continue
+        for child in sorted(base.iterdir()):
+            if child.is_dir() and (child / "xlights_rgbeffects.xml").exists():
+                folders[child.name.lower()] = str(child)
+
+    return folders
+
+
 def load_config() -> ServerConfig:
-    """Load configuration from disk, creating defaults if needed."""
+    """Load configuration from disk, auto-detecting show folders if needed."""
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE) as f:
             data = json.load(f)
-        return ServerConfig(**data)
+        config = ServerConfig(**data)
+        # Re-detect if all configured paths are missing
+        if config.show_folders and not any(
+            Path(p).expanduser().exists() for p in config.show_folders.values()
+        ):
+            detected = _find_xlights_show_folders()
+            if detected:
+                config.show_folders = detected
+                config.active_show = next(iter(detected))
+                save_config(config)
+        return config
 
-    # Create default config
-    config = ServerConfig(
-        show_folders={
-            "christmas": "~/Library/Mobile Documents/com~apple~CloudDocs/xLights/Christmas",
-            "halloween": "~/Library/Mobile Documents/com~apple~CloudDocs/xLights/Halloween",
-            "baseline": "~/Library/Mobile Documents/com~apple~CloudDocs/xLights/house-baseline",
-        },
-        active_show="christmas",
-    )
+    # First run — auto-detect show folders
+    folders = _find_xlights_show_folders()
+    if folders:
+        active = next(iter(folders))
+        config = ServerConfig(show_folders=folders, active_show=active)
+    else:
+        # No show folders found — create empty config so tools can report the issue
+        config = ServerConfig(show_folders={}, active_show="")
+
     save_config(config)
     return config
 

@@ -44,6 +44,16 @@ def list_shows() -> dict:
     indicates which one is currently active.
     """
     config = get_config()
+    if not config.show_folders:
+        return {
+            "error": "No xLights show folders found.",
+            "hint": (
+                "No show folders were auto-detected. Make sure xLights is installed "
+                "and has at least one show folder containing xlights_rgbeffects.xml. "
+                "Common locations: ~/Documents/xLights/, ~/xLights/, or iCloud Drive. "
+                "You can also manually create ~/.xlights-mcp/config.json with your paths."
+            ),
+        }
     shows = {}
     for name, path_str in config.show_folders.items():
         path = Path(path_str).expanduser()
