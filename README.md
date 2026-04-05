@@ -30,7 +30,7 @@ Give it an `.mp3`, and it will analyze the beats, song structure, and energy —
 - **Check status** of your Falcon Pi Player
 - **Upload sequences** (.fseq + audio) to FPP
 - **Manage playlists** — list, start, stop
-- Works with FPP's REST API (ready for when your controllers are on the network)
+- Works with FPP's REST API
 
 ---
 

@@ -241,7 +241,8 @@ LOW_ENERGY_THRESHOLD = 0.35
 # ---------------------------------------------------------------------------
 
 # Patterns to detect model groups: (group_name, name_patterns, model_category_override)
-MODEL_GROUP_PATTERNS: list[tuple[str, list[str], str | None]] = [
+# DEPRECATED — kept only as fallback when show has no xLights-defined model groups
+_LEGACY_GROUP_PATTERNS: list[tuple[str, list[str], str | None]] = [
     ("canes", ["Left Cane", "Right Cane"], "arch"),
     ("arches", ["Arches-"], "arch"),
     ("flakes", ["Flake "], "custom"),
@@ -253,36 +254,67 @@ MODEL_GROUP_PATTERNS: list[tuple[str, list[str], str | None]] = [
 ]
 
 
-def _detect_model_groups(models: list[LightModel]) -> tuple[
+def _detect_model_groups(
+    models: list[LightModel],
+    show_config: ShowConfig,
+) -> tuple[
     dict[str, list[LightModel]],  # group_name → member models
     list[LightModel],              # ungrouped models
     dict[str, str],                # group_name → model_category
 ]:
-    """Auto-detect model groups from naming patterns.
+    """Auto-detect model groups, preferring xLights-defined groups.
+
+    Checks show_config.model_groups first (parsed from xlights_rgbeffects.xml).
+    Falls back to common-prefix detection if no xLights groups exist.
 
     Returns grouped models (effects applied identically to all members),
     ungrouped models (effects applied individually), and category overrides.
     """
-    groups: dict[str, list[LightModel]] = {}
-    group_categories: dict[str, str] = {}
+    model_by_name: dict[str, LightModel] = {m.name: m for m in models}
+
+    # --- Strategy 1: Use xLights-defined model groups ---
+    if show_config.model_groups:
+        groups: dict[str, list[LightModel]] = {}
+        group_categories: dict[str, str] = {}
+        grouped_names: set[str] = set()
+
+        for mg in show_config.model_groups:
+            members = [model_by_name[n] for n in mg.members if n in model_by_name]
+            if len(members) >= 2:
+                groups[mg.name] = members
+                grouped_names.update(m.name for m in members)
+                # Derive category from majority of member model categories
+                cats = [m.model_category for m in members]
+                group_categories[mg.name] = max(set(cats), key=cats.count)
+
+        if groups:
+            ungrouped = [m for m in models if m.name not in grouped_names]
+            logger.info(f"Using {len(groups)} xLights-defined model groups")
+            return groups, ungrouped, group_categories
+
+    # --- Strategy 2: Automatic common-prefix grouping ---
+    # Group models that share a common prefix (e.g. "Left Cane 1", "Left Cane 2" → "left_cane")
+    groups = {}
+    group_categories = {}
     grouped_names: set[str] = set()
 
-    for group_name, patterns, cat_override in MODEL_GROUP_PATTERNS:
-        members = []
-        for model in models:
-            for pattern in patterns:
-                if model.name.startswith(pattern) or pattern in model.name:
-                    members.append(model)
-                    grouped_names.add(model.name)
-                    break
-        if members:
-            groups[group_name] = members
-            if cat_override:
-                group_categories[group_name] = cat_override
-            else:
-                group_categories[group_name] = members[0].model_category
+    prefix_buckets: dict[str, list[LightModel]] = {}
+    for model in models:
+        # Strip trailing digits/spaces to find the base prefix
+        name = model.name.rstrip("0123456789 -")
+        if name and name != model.name:
+            prefix_buckets.setdefault(name, []).append(model)
+
+    for prefix, members in prefix_buckets.items():
+        if len(members) >= 2:
+            group_key = prefix.strip().lower().replace(" ", "_")
+            groups[group_key] = members
+            grouped_names.update(m.name for m in members)
+            cats = [m.model_category for m in members]
+            group_categories[group_key] = max(set(cats), key=cats.count)
 
     ungrouped = [m for m in models if m.name not in grouped_names]
+    logger.info(f"Auto-detected {len(groups)} model groups by common prefix")
     return groups, ungrouped, group_categories
 
 
@@ -384,11 +416,30 @@ def _generate_auto(
     section_beats = _precompute_section_beats(analysis)
     section_downbeats = _precompute_section_downbeats(analysis)
 
-    # Detect model groups
-    groups, ungrouped, group_categories = _detect_model_groups(show_config.models)
+    # Detect model groups (uses xLights-defined groups, falls back to prefix detection)
+    groups, ungrouped, group_categories = _detect_model_groups(show_config.models, show_config)
     logger.info(f"Detected {len(groups)} model groups, {len(ungrouped)} ungrouped models")
     for gname, members in groups.items():
         logger.info(f"  Group '{gname}': {[m.name for m in members]}")
+
+    # Identify singing models (models with face definitions) — exclude from regular pipeline
+    singing_models: dict[str, str] = {}  # model_name → face_definition_name
+    singing_model_names: set[str] = set()
+    for m in show_config.models:
+        if m.face_definitions:
+            singing_models[m.name] = m.face_definitions[0]
+            singing_model_names.add(m.name)
+
+    # Remove singing models from groups and ungrouped lists
+    for group_name in list(groups.keys()):
+        groups[group_name] = [m for m in groups[group_name] if m.name not in singing_model_names]
+        if not groups[group_name]:
+            del groups[group_name]
+            group_categories.pop(group_name, None)
+    ungrouped = [m for m in ungrouped if m.name not in singing_model_names]
+
+    if singing_models:
+        logger.info(f"Singing models excluded from regular pipeline: {list(singing_models.keys())}")
 
     # Helper to generate effects for a model category and apply to a list of model names
     def generate_for_models(model_names: list[str], cat: str, group_seed: str):
@@ -492,15 +543,9 @@ def _generate_auto(
     for model in ungrouped:
         generate_for_models([model.name], model.model_category, model.name)
 
-    # --- Singing Faces: extract lyrics and create timing track + Faces effects ---
+    # --- Singing Faces: dedicated pipeline (separate from regular effects) ---
     timing_tracks: list[TimingTrack] = []
     has_lyrics = False
-
-    # Detect singing models — models that have face definitions
-    singing_models: dict[str, str] = {}  # model_name → face_definition_name
-    for m in show_config.models:
-        if m.face_definitions:
-            singing_models[m.name] = m.face_definitions[0]  # use first face def
 
     if singing_models:
         lyric_track = _try_extract_lyrics(mp3_path)
@@ -530,11 +575,39 @@ def _generate_auto(
 
             timing_tracks.append(TimingTrack(
                 name=track_name,
-                labels=[word_labels, word_labels, phoneme_labels],  # 3 layers
+                labels=[word_labels, word_labels, phoneme_labels],
             ))
 
-            # Place Faces effect on singing models (spans full song)
+            # Place effects on singing models:
+            #   Layer 0: Background body effect (keeps body illuminated)
+            #   Layer 1: Faces effect (renders face animation ON TOP)
             for model_name, face_def in singing_models.items():
+                singing_rng = random.Random(hash(model_name + mp3_path.stem))
+
+                # Layer 0: Section-aware background that illuminates the whole model
+                for sec_idx, section in enumerate(analysis.sections):
+                    is_high = section.energy_level >= HIGH_ENERGY_THRESHOLD
+                    is_low = section.energy_level < LOW_ENERGY_THRESHOLD
+                    pal_idx = sec_idx % len(palette_pool)
+                    palette = palette_pool[pal_idx]
+
+                    if is_high:
+                        bed_key = "Twinkle_dense"
+                    elif is_low:
+                        bed_key = "ColorWash_slow"
+                    else:
+                        bed_key = singing_rng.choice(["Twinkle_ambient", "ColorWash_cycling", "Butterfly_gentle"])
+
+                    bed_settings = _get_settings(bed_key)
+                    all_effects.append(EffectPlacement(
+                        model_name=model_name, layer=0,
+                        effect_name=_effect_name_from_key(bed_key),
+                        start_time_ms=section.start_time_ms,
+                        end_time_ms=section.end_time_ms,
+                        settings=bed_settings, palette=palette,
+                    ))
+
+                # Layer 1: Faces effect spanning the full song
                 faces_settings = {
                     "E_CHECKBOX_Faces_Outline": "1",
                     "E_CHOICE_Faces_EyeBlinkDuration": "Normal",
@@ -547,7 +620,7 @@ def _generate_auto(
                 }
                 all_effects.append(EffectPlacement(
                     model_name=model_name,
-                    layer=0,
+                    layer=1,
                     effect_name="Faces",
                     start_time_ms=0,
                     end_time_ms=analysis.duration_ms,
@@ -555,7 +628,12 @@ def _generate_auto(
                     palette=all_palettes[0] if all_palettes else ColorPalette(),
                 ))
 
-            logger.info(f"Added Faces on {list(singing_models.keys())} with face defs: {list(singing_models.values())}")
+            logger.info(f"Added singing pipeline for {list(singing_models.keys())} (L0=body, L1=Faces)")
+        else:
+            # Lyrics unavailable — treat singing models as regular custom models
+            for model_name in singing_models:
+                generate_for_models([model_name], "custom", model_name)
+            logger.info(f"Lyrics unavailable — singing models treated as regular custom models")
 
     # Build sequence spec
     spec = SequenceSpec(
