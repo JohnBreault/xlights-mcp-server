@@ -23,8 +23,12 @@ separation = [
 beats = [
     "madmom>=0.16.1",
 ]
+lyrics = [
+    "openai-whisper>=20230918",
+    "torch>=2.0.0",
+]
 all = [
-    "xlights-mcp-server[separation,beats]",
+    "xlights-mcp-server[separation,beats,lyrics]",
 ]
 dev = [
     "pytest>=8.0.0",

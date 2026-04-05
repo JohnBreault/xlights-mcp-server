@@ -26,6 +26,21 @@ class EffectPlacement(BaseModel):
     palette: ColorPalette | None = None
 
 
+class TimingTrackLabel(BaseModel):
+    """A label in a timing track (phoneme, word, etc.)."""
+
+    label: str
+    start_time_ms: int
+    end_time_ms: int
+
+
+class TimingTrack(BaseModel):
+    """A timing track (e.g., lyric/phoneme track) for the sequence."""
+
+    name: str
+    labels: list[list[TimingTrackLabel]] = Field(default_factory=list)  # one list per layer
+
+
 class SequenceSpec(BaseModel):
     """Complete specification for generating a sequence."""
 
@@ -37,6 +52,7 @@ class SequenceSpec(BaseModel):
     timing_ms: int = 25  # frame rate in ms (25ms = 40fps)
     palettes: list[ColorPalette] = Field(default_factory=list)
     effects: list[EffectPlacement] = Field(default_factory=list)
+    timing_tracks: list[TimingTrack] = Field(default_factory=list)
 
 
 def write_xsq(
@@ -137,6 +153,15 @@ def write_xsq(
         de.set("visible", "1")
         de.set("active", "0")
 
+    # Add timing tracks (lyric tracks, etc.) to DisplayElements
+    for track in spec.timing_tracks:
+        de = ET.SubElement(display_elems, "Element")
+        de.set("collapsed", "0")
+        de.set("type", "timing")
+        de.set("name", track.name)
+        de.set("visible", "1")
+        de.set("active", "0")
+
     # <ElementEffects> — actual effect placements per model
     element_effects = ET.SubElement(root, "ElementEffects")
 
@@ -182,6 +207,20 @@ def write_xsq(
                             effect_elem.set("palette", str(pidx))
                         except ValueError:
                             pass
+
+    # Add timing tracks to ElementEffects (phoneme labels)
+    for track in spec.timing_tracks:
+        te = ET.SubElement(element_effects, "Element")
+        te.set("type", "timing")
+        te.set("name", track.name)
+
+        for layer_labels in track.labels:
+            layer_elem = ET.SubElement(te, "EffectLayer")
+            for lbl in sorted(layer_labels, key=lambda l: l.start_time_ms):
+                label_elem = ET.SubElement(layer_elem, "Effect")
+                label_elem.set("label", lbl.label)
+                label_elem.set("startTime", str(lbl.start_time_ms))
+                label_elem.set("endTime", str(lbl.end_time_ms))
 
     # <lastView>
     _add_text_elem(root, "lastView", "0")

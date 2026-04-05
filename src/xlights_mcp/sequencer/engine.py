@@ -28,7 +28,9 @@ from xlights_mcp.config import AudioConfig
 from xlights_mcp.xlights.models import LightModel, ShowConfig
 from xlights_mcp.xlights.palettes import ColorPalette, get_theme_palettes
 from xlights_mcp.xlights.show import load_show_config
-from xlights_mcp.xlights.xsq_writer import EffectPlacement, SequenceSpec, write_xsq
+from xlights_mcp.xlights.xsq_writer import (
+    EffectPlacement, SequenceSpec, TimingTrack, TimingTrackLabel, write_xsq,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +236,56 @@ HIGH_ENERGY_THRESHOLD = 0.65
 LOW_ENERGY_THRESHOLD = 0.35
 
 
+# ---------------------------------------------------------------------------
+# Model grouping — auto-detect groups from model names
+# ---------------------------------------------------------------------------
+
+# Patterns to detect model groups: (group_name, name_patterns, model_category_override)
+MODEL_GROUP_PATTERNS: list[tuple[str, list[str], str | None]] = [
+    ("canes", ["Left Cane", "Right Cane"], "arch"),
+    ("arches", ["Arches-"], "arch"),
+    ("flakes", ["Flake "], "custom"),
+    ("spinners", ["Spinner "], "custom"),
+    ("rooflines", ["Roofline", "Roof Peak", "Garage Roofline", "Porch Roofline"], "single_line"),
+    ("pillars", ["Pillar"], "single_line"),
+    ("windows_doors", ["Window", "Door"], "window"),
+    ("bulbs", ["Bulb "], "custom"),
+]
+
+
+def _detect_model_groups(models: list[LightModel]) -> tuple[
+    dict[str, list[LightModel]],  # group_name → member models
+    list[LightModel],              # ungrouped models
+    dict[str, str],                # group_name → model_category
+]:
+    """Auto-detect model groups from naming patterns.
+
+    Returns grouped models (effects applied identically to all members),
+    ungrouped models (effects applied individually), and category overrides.
+    """
+    groups: dict[str, list[LightModel]] = {}
+    group_categories: dict[str, str] = {}
+    grouped_names: set[str] = set()
+
+    for group_name, patterns, cat_override in MODEL_GROUP_PATTERNS:
+        members = []
+        for model in models:
+            for pattern in patterns:
+                if model.name.startswith(pattern) or pattern in model.name:
+                    members.append(model)
+                    grouped_names.add(model.name)
+                    break
+        if members:
+            groups[group_name] = members
+            if cat_override:
+                group_categories[group_name] = cat_override
+            else:
+                group_categories[group_name] = members[0].model_category
+
+    ungrouped = [m for m in models if m.name not in grouped_names]
+    return groups, ungrouped, group_categories
+
+
 def generate_sequence(
     mp3_path: Path,
     show_path: Path | None,
@@ -310,14 +362,16 @@ def _generate_auto(
 ) -> dict:
     """Professional-quality automatic sequence generation.
 
-    Uses a 3-layer approach:
+    Uses a 3-layer approach with model group synchronization:
       Layer 0: Background bed (twinkle, wash) — runs full section
       Layer 1: Motion (chase, spirals) — synced to bars
       Layer 2: Accent hits (shockwave, morph) — on select downbeats only
+
+    Grouped models (canes, arches, etc.) get identical effects for synchronization.
     """
     rng = random.Random(hash(mp3_path.stem))  # deterministic per song
 
-    # Build palette pool — cycle through these for variety
+    # Build palette pool
     theme_palettes = get_theme_palettes(theme)
     palette_pool = list(theme_palettes.values())
     if not palette_pool:
@@ -326,12 +380,19 @@ def _generate_auto(
     all_palettes: list[ColorPalette] = list(palette_pool)
     all_effects: list[EffectPlacement] = []
 
-    # Pre-compute beats within each section for fast lookup
+    # Pre-compute beats within each section
     section_beats = _precompute_section_beats(analysis)
     section_downbeats = _precompute_section_downbeats(analysis)
 
-    for model in show_config.models:
-        cat = model.model_category
+    # Detect model groups
+    groups, ungrouped, group_categories = _detect_model_groups(show_config.models)
+    logger.info(f"Detected {len(groups)} model groups, {len(ungrouped)} ungrouped models")
+    for gname, members in groups.items():
+        logger.info(f"  Group '{gname}': {[m.name for m in members]}")
+
+    # Helper to generate effects for a model category and apply to a list of model names
+    def generate_for_models(model_names: list[str], cat: str, group_seed: str):
+        group_rng = random.Random(hash(group_seed + mp3_path.stem))
 
         for sec_idx, section in enumerate(analysis.sections):
             is_high = section.energy_level >= HIGH_ENERGY_THRESHOLD
@@ -339,109 +400,164 @@ def _generate_auto(
             is_intro = section.label == "intro" or (sec_idx == 0 and section.duration < 15)
             is_outro = section.label == "outro" or (sec_idx == len(analysis.sections) - 1)
 
-            # Palette cycling — change every 2 sections for variety
-            pal_idx = (sec_idx // 2 + hash(model.name)) % len(palette_pool)
+            pal_idx = (sec_idx // 2 + hash(group_seed)) % len(palette_pool)
             palette = palette_pool[pal_idx]
 
-            beats_in_section = section_beats.get(sec_idx, [])
             downbeats_in_section = section_downbeats.get(sec_idx, [])
 
-            # ------ LAYER 0: Background bed ------
+            # --- LAYER 0: Background bed ---
             bed_choices = BED_EFFECTS.get(cat, BED_EFFECTS["other"])
             if is_high:
-                # High energy: denser twinkle or fast color wash
                 bed_key = "Twinkle_dense" if "Twinkle_ambient" in bed_choices else bed_choices[0]
             elif is_intro or is_outro:
                 bed_key = "ColorWash_slow"
             else:
-                bed_key = rng.choice(bed_choices)
+                bed_key = group_rng.choice(bed_choices)
 
             bed_settings = _get_settings(bed_key)
-            all_effects.append(EffectPlacement(
-                model_name=model.name,
-                layer=0,
-                effect_name=_effect_name_from_key(bed_key),
-                start_time_ms=section.start_time_ms,
-                end_time_ms=section.end_time_ms,
-                settings=bed_settings,
-                palette=palette,
-            ))
+            for name in model_names:
+                all_effects.append(EffectPlacement(
+                    model_name=name, layer=0,
+                    effect_name=_effect_name_from_key(bed_key),
+                    start_time_ms=section.start_time_ms,
+                    end_time_ms=section.end_time_ms,
+                    settings=bed_settings, palette=palette,
+                ))
 
-            # ------ LAYER 1: Motion (skip for intro/outro/low energy) ------
+            # --- LAYER 1: Motion (skip for intro/outro/low energy) ---
             if not is_intro and not is_outro and not is_low:
                 motion_choices = MOTION_EFFECTS.get(cat, MOTION_EFFECTS["other"])
-                # Alternate direction per section for arches/lines
                 if cat in ("arch", "single_line", "poly_line") and len(motion_choices) > 1:
                     motion_key = motion_choices[sec_idx % len(motion_choices)]
                 else:
-                    motion_key = rng.choice(motion_choices)
+                    motion_key = group_rng.choice(motion_choices)
 
                 motion_settings = _get_settings(motion_key)
 
-                # Place motion effects between downbeats (bar-length segments)
                 if len(downbeats_in_section) >= 2:
                     for j in range(len(downbeats_in_section) - 1):
                         start_ms = int(downbeats_in_section[j] * 1000)
                         end_ms = int(downbeats_in_section[j + 1] * 1000)
-                        # Alternate palette every 2 bars for color cycling
                         motion_pal_idx = (pal_idx + j // 2) % len(palette_pool)
-                        all_effects.append(EffectPlacement(
-                            model_name=model.name,
-                            layer=1,
-                            effect_name=_effect_name_from_key(motion_key),
-                            start_time_ms=start_ms,
-                            end_time_ms=end_ms,
-                            settings=motion_settings,
-                            palette=palette_pool[motion_pal_idx],
-                        ))
+                        for name in model_names:
+                            all_effects.append(EffectPlacement(
+                                model_name=name, layer=1,
+                                effect_name=_effect_name_from_key(motion_key),
+                                start_time_ms=start_ms, end_time_ms=end_ms,
+                                settings=motion_settings,
+                                palette=palette_pool[motion_pal_idx],
+                            ))
                 else:
-                    all_effects.append(EffectPlacement(
-                        model_name=model.name,
-                        layer=1,
-                        effect_name=_effect_name_from_key(motion_key),
-                        start_time_ms=section.start_time_ms,
-                        end_time_ms=section.end_time_ms,
-                        settings=motion_settings,
-                        palette=palette,
-                    ))
+                    for name in model_names:
+                        all_effects.append(EffectPlacement(
+                            model_name=name, layer=1,
+                            effect_name=_effect_name_from_key(motion_key),
+                            start_time_ms=section.start_time_ms,
+                            end_time_ms=section.end_time_ms,
+                            settings=motion_settings, palette=palette,
+                        ))
 
-            # ------ LAYER 2: Accent hits (only on high-energy sections, select beats) ------
+            # --- LAYER 2: Accent hits (high energy only, selective beats) ---
             if is_high and downbeats_in_section:
                 accent_choices = ACCENT_EFFECTS.get(cat, ACCENT_EFFECTS["other"])
-                accent_key = rng.choice(accent_choices)
+                accent_key = group_rng.choice(accent_choices)
                 accent_settings = _get_settings(accent_key)
 
-                # Only accent every Nth downbeat to avoid monotony
                 accent_interval = 2 if section.energy_level > 0.85 else 4
                 for j, db_time in enumerate(downbeats_in_section):
                     if j % accent_interval != 0:
                         continue
                     db_ms = int(db_time * 1000)
-                    # Duration varies by tempo: ~1-2 beats
                     beat_dur_ms = int(60000 / max(analysis.beats.tempo, 60))
                     accent_dur = min(beat_dur_ms, 500)
-
                     accent_pal_idx = (pal_idx + j) % len(palette_pool)
-                    all_effects.append(EffectPlacement(
-                        model_name=model.name,
-                        layer=2,
-                        effect_name=_effect_name_from_key(accent_key),
-                        start_time_ms=db_ms,
-                        end_time_ms=db_ms + accent_dur,
-                        settings=accent_settings,
-                        palette=palette_pool[accent_pal_idx],
-                    ))
+
+                    for name in model_names:
+                        all_effects.append(EffectPlacement(
+                            model_name=name, layer=2,
+                            effect_name=_effect_name_from_key(accent_key),
+                            start_time_ms=db_ms,
+                            end_time_ms=db_ms + accent_dur,
+                            settings=accent_settings,
+                            palette=palette_pool[accent_pal_idx],
+                        ))
+
+    # Process grouped models — all members get identical effects
+    for group_name, members in groups.items():
+        cat = group_categories[group_name]
+        member_names = [m.name for m in members]
+        generate_for_models(member_names, cat, group_name)
+
+    # Process ungrouped models individually
+    for model in ungrouped:
+        generate_for_models([model.name], model.model_category, model.name)
+
+    # --- Singing Faces: extract lyrics and create timing track + Faces effects ---
+    timing_tracks: list[TimingTrack] = []
+    has_lyrics = False
+
+    # Detect singing models (Snowman, Bulbs)
+    singing_models = [m.name for m in show_config.models
+                      if any(kw in m.name.lower() for kw in ("snowman", "bulb"))]
+
+    if singing_models:
+        lyric_track = _try_extract_lyrics(mp3_path)
+        if lyric_track and lyric_track.available and lyric_track.phonemes:
+            has_lyrics = True
+            track_name = lyric_track.track_name
+
+            # Build timing track with 2 layers: words (L0) + phonemes (L1)
+            word_labels = []
+            for w in lyric_track.words:
+                word_labels.append(TimingTrackLabel(
+                    label=w.word,
+                    start_time_ms=int(w.start_time * 1000),
+                    end_time_ms=int(w.end_time * 1000),
+                ))
+
+            phoneme_labels = []
+            for p in lyric_track.phonemes:
+                phoneme_labels.append(TimingTrackLabel(
+                    label=p.phoneme,
+                    start_time_ms=p.start_time_ms,
+                    end_time_ms=p.end_time_ms,
+                ))
+
+            timing_tracks.append(TimingTrack(
+                name=track_name,
+                labels=[word_labels, phoneme_labels],
+            ))
+
+            # Place Faces effect on singing models (spans full song)
+            faces_settings = {
+                "E_CHECKBOX_Faces_Outline": "1",
+                "E_CHOICE_Faces_EyeBlinkDuration": "Normal",
+                "E_CHOICE_Faces_EyeBlinkFrequency": "Normal",
+                "E_CHOICE_Faces_Eyes": "Auto",
+                "E_CHOICE_Faces_TimingTrack": track_name,
+                "T_TEXTCTRL_Fadein": "0.5",
+                "T_TEXTCTRL_Fadeout": "0.5",
+            }
+            for model_name in singing_models:
+                all_effects.append(EffectPlacement(
+                    model_name=model_name,
+                    layer=0,  # Faces on base layer
+                    effect_name="Faces",
+                    start_time_ms=0,
+                    end_time_ms=analysis.duration_ms,
+                    settings=faces_settings,
+                    palette=all_palettes[0] if all_palettes else ColorPalette(),
+                ))
+
+            logger.info(f"Added Faces effect on {singing_models} with {len(lyric_track.phonemes)} phonemes")
 
     # Build sequence spec
     spec = SequenceSpec(
-        song_title=mp3_path.stem,
-        artist="",
-        album="",
+        song_title=mp3_path.stem, artist="", album="",
         media_file=str(mp3_path),
-        duration_ms=analysis.duration_ms,
-        timing_ms=25,
-        palettes=all_palettes,
-        effects=all_effects,
+        duration_ms=analysis.duration_ms, timing_ms=25,
+        palettes=all_palettes, effects=all_effects,
+        timing_tracks=timing_tracks,
     )
 
     # Write (never overwrite existing)
@@ -455,10 +571,7 @@ def _generate_auto(
 
     write_xsq(spec, show_config, output_path)
 
-    # Count layers used
-    layers_used = set()
-    for e in all_effects:
-        layers_used.add(e.layer)
+    layers_used = set(e.layer for e in all_effects)
 
     return {
         "success": True,
@@ -471,6 +584,9 @@ def _generate_auto(
         "total_effects": len(all_effects),
         "layers_used": len(layers_used),
         "unique_palettes": len(all_palettes),
+        "model_groups": len(groups),
+        "has_lyrics": has_lyrics,
+        "singing_models": singing_models if has_lyrics else [],
         "message": f"Sequence created: {output_path.name}. Open in xLights to preview and render.",
     }
 
@@ -575,3 +691,16 @@ def _precompute_section_downbeats(analysis: SongAnalysis) -> dict[int, list[floa
             if section.start_time <= b < section.end_time
         ]
     return result
+
+
+def _try_extract_lyrics(mp3_path: Path):
+    """Try to extract lyrics using Whisper. Returns None if unavailable."""
+    try:
+        from xlights_mcp.audio.lyrics import extract_lyrics
+        return extract_lyrics(mp3_path, whisper_model="base")
+    except ImportError:
+        logger.info("Whisper not installed — skipping lyric extraction")
+        return None
+    except Exception as e:
+        logger.warning(f"Lyric extraction failed: {e}")
+        return None
