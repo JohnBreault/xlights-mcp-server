@@ -94,7 +94,11 @@ def list_models() -> dict:
     config = get_config()
     show_path = config.active_show_path
     if not show_path or not show_path.exists():
-        return {"error": f"Show path not found: {show_path}"}
+        return {
+            "error": "No active show folder configured.",
+            "hint": "Run list_shows first. If no shows are found, make sure xLights is installed "
+            "with at least one show folder, or manually configure ~/.xlights-mcp/config.json.",
+        }
 
     models = load_show_models(show_path)
     return {
@@ -115,7 +119,11 @@ def list_controllers() -> dict:
     config = get_config()
     show_path = config.active_show_path
     if not show_path or not show_path.exists():
-        return {"error": f"Show path not found: {show_path}"}
+        return {
+            "error": "No active show folder configured.",
+            "hint": "Run list_shows first. If no shows are found, make sure xLights is installed "
+            "with at least one show folder, or manually configure ~/.xlights-mcp/config.json.",
+        }
 
     controllers = load_show_controllers(show_path)
     return {
@@ -131,7 +139,11 @@ def list_sequences() -> dict:
     config = get_config()
     show_path = config.active_show_path
     if not show_path or not show_path.exists():
-        return {"error": f"Show path not found: {show_path}"}
+        return {
+            "error": "No active show folder configured.",
+            "hint": "Run list_shows first. If no shows are found, make sure xLights is installed "
+            "with at least one show folder, or manually configure ~/.xlights-mcp/config.json.",
+        }
 
     sequences = []
     for xsq in sorted(show_path.glob("*.xsq")):
