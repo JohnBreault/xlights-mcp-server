@@ -28,6 +28,14 @@ Give it an `.mp3`, and it will analyze the beats, song structure, and energy —
   - **Template** — define reusable effect recipes, AI places them on beat
 - **Never overwrites** — existing sequences are safe; generated files get a `(generated N)` suffix
 
+### 📦 Sequence Import & Remapping
+- **Import community sequences** — take any `.xsq` or `.zip` package from the xLights community and remap it to your show layout
+- **Intelligent model matching** — automatically maps imported models to yours by name, type, and pixel count
+- **Zip package support** — extracts audio, video, shader, and image assets; rewrites hardcoded file paths
+- **Singing model awareness** — singing face models only match to other singing models
+- **Full mapping report** — see exactly what matched, how, and what was skipped
+- **Manual overrides** — correct any mapping before the remapped sequence is generated
+
 ### 📡 FPP Integration
 - **Check status** of your Falcon Pi Player
 - **Upload sequences** (.fseq + audio) to FPP
@@ -229,6 +237,21 @@ When generating, you'll be asked to choose a mode:
 - **guided** — see the song structure first, then choose effects per section
 - **template** — apply saved effect recipes to detected sections
 
+### Import a community sequence
+
+```
+> Import the sequence ~/Downloads/Holly Jolly Christmas SD.zip to my show
+> Import ~/Downloads/Christmas Time.xsq and show me the model mapping
+> Import this sequence but map "Arch Left" to my "Arches-1" model
+```
+
+The importer supports both standalone `.xsq` files and `.zip` packages (which include audio, video assets, and the source show's model data). It automatically matches models from the imported sequence to your layout using:
+1. **Exact name match** → identical model names
+2. **Similar words** → shared words like "snowflake", "arch", "tree"
+3. **Model type** → same `display_as` type (e.g., both Arches)
+4. **Pixel count** → within 70% of each other
+5. **Manual overrides** → you choose specific mappings
+
 ### Manage FPP (when controllers are online)
 
 ```
@@ -266,6 +289,11 @@ When generating, you'll be asked to choose a mode:
 |------|-------------|
 | `create_sequence` | Generate a `.xsq` file from an `.mp3` with effects on all models |
 | `preview_plan` | Preview the generation plan without writing a file |
+
+### Sequence Import & Remapping
+| Tool | Description |
+|------|-------------|
+| `import_sequence` | Import a `.xsq` or `.zip` sequence package and remap models to your layout |
 
 ### FPP Integration
 | Tool | Description |

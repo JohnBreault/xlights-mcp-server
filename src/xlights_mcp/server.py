@@ -401,6 +401,136 @@ def preview_plan(mp3_path: str, mode: str = "auto") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Sequence Remapping Tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def remap_sequence(
+    import_path: str,
+    overrides: dict[str, str] | None = None,
+    pixel_threshold: float = 0.70,
+) -> dict:
+    """Import a sequence from a different show layout and remap it to your models.
+
+    Accepts a .xsq file or .zip package from the xLights community. Automatically
+    matches imported models to your show's models using name similarity, model type,
+    and pixel count. Generates a new .xsq with effects remapped to your layout.
+
+    Args:
+        import_path: Path to the .xsq or .zip file to import.
+        overrides: Optional dict mapping imported model names to your model names.
+            These take precedence over automatic matching.
+        pixel_threshold: Similarity threshold for pixel count matching (0.0-1.0).
+            Default 0.70 means models must have at least 70% pixel count similarity.
+
+    Returns:
+        Dict with mapping report, output path, and summary statistics.
+    """
+    from xlights_mcp.remapper.importer import import_package
+    from xlights_mcp.remapper.matcher import (
+        build_candidates_from_import,
+        build_candidates_from_user_show,
+        match_models,
+    )
+    from xlights_mcp.remapper.generator import generate_remapped_sequence
+    from xlights_mcp.remapper.models import RemapResult
+    from xlights_mcp.xlights.show import load_show_config
+
+    import_file = Path(import_path).expanduser()
+
+    # Validate import file
+    if not import_file.exists():
+        return RemapResult(
+            success=False, error=f"File not found: {import_file}"
+        ).model_dump()
+
+    ext = import_file.suffix.lower()
+    if ext not in (".xsq", ".zip"):
+        return RemapResult(
+            success=False,
+            error=f"Unsupported file type: {ext}. Use .xsq or .zip.",
+        ).model_dump()
+
+    # Load user show
+    config = get_config()
+    show_path = config.active_show_path
+    if not show_path or not show_path.exists():
+        return RemapResult(
+            success=False, error="No active show configured. Use switch_show() first."
+        ).model_dump()
+
+    try:
+        show_config = load_show_config(show_path)
+    except Exception as e:
+        return RemapResult(
+            success=False, error=f"Failed to load show config: {e}"
+        ).model_dump()
+
+    if not show_config.models and not show_config.model_groups:
+        return RemapResult(
+            success=False, error="No models found in user's active show."
+        ).model_dump()
+
+    # Import the sequence
+    try:
+        seq_data, lxml_root, imported_meta, extracted_assets = import_package(
+            import_file, show_path
+        )
+    except Exception as e:
+        return RemapResult(
+            success=False, error=str(e)
+        ).model_dump()
+
+    if not seq_data.model_names:
+        return RemapResult(
+            success=False, error="Imported sequence contains no models with effects."
+        ).model_dump()
+
+    # Build candidates
+    user_candidates = build_candidates_from_user_show(
+        show_config.models, show_config.model_groups
+    )
+    imported_candidates = build_candidates_from_import(
+        seq_data.model_names, imported_meta
+    )
+
+    # Run matching
+    report = match_models(
+        imported_candidates=imported_candidates,
+        user_candidates=user_candidates,
+        threshold=pixel_threshold,
+        overrides=overrides or {},
+        imported_source=str(import_file),
+        has_imported_metadata=imported_meta is not None,
+        timing_tracks_preserved=len(seq_data.timing_track_names),
+        extracted_assets=extracted_assets,
+    )
+
+    # Generate remapped .xsq
+    try:
+        output_path, missing_assets, asset_warnings = generate_remapped_sequence(
+            root=lxml_root,
+            report=report,
+            show_folder=show_path,
+        )
+    except Exception as e:
+        return RemapResult(
+            success=False, error=f"Failed to generate remapped sequence: {e}"
+        ).model_dump()
+
+    # Enrich report with post-generation info
+    report.missing_assets = missing_assets
+    report.warnings.extend(asset_warnings)
+
+    return RemapResult(
+        success=True,
+        output_path=str(output_path),
+        mapping_report=report,
+    ).model_dump()
+
+
+# ---------------------------------------------------------------------------
 # FPP Integration Tools
 # ---------------------------------------------------------------------------
 
