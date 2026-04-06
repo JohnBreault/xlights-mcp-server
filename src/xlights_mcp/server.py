@@ -45,6 +45,20 @@ def list_shows() -> dict:
     """
     config = get_config()
     if not config.show_folders:
+        if config.detected_folders:
+            detected = {}
+            for name, path_str in config.detected_folders.items():
+                path = Path(path_str).expanduser()
+                detected[name] = str(path)
+            return {
+                "status": "setup_required",
+                "detected_folders": detected,
+                "action_required": (
+                    "xLights show folders were detected at the paths listed above. "
+                    "Ask the user if they'd like to use these, or provide their own show directory path. "
+                    "Call add_show_folder with the path they choose."
+                ),
+            }
         return {
             "error": "No xLights show folders found.",
             "action_required": (
@@ -68,7 +82,7 @@ def list_shows() -> dict:
 def add_show_folder(path: str, name: str | None = None) -> dict:
     """Add an xLights show folder by path.
 
-    Use this when auto-detection doesn't find the user's show directory.
+    Use this to confirm a detected show folder or provide a custom path.
     The folder must contain an xlights_rgbeffects.xml file.
 
     Args:
@@ -94,6 +108,7 @@ def add_show_folder(path: str, name: str | None = None) -> dict:
     config.show_folders[show_name] = str(show_path)
     if not config.active_show:
         config.active_show = show_name
+    config.detected_folders = {}
     save_config(config)
 
     global _config

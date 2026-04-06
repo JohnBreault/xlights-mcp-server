@@ -37,6 +37,7 @@ class ServerConfig(BaseModel):
 
     show_folders: dict[str, str] = Field(default_factory=dict)
     active_show: str = ""
+    detected_folders: dict[str, str] = Field(default_factory=dict)
     fpp: FPPConfig = Field(default_factory=FPPConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
 
@@ -92,19 +93,19 @@ def load_config() -> ServerConfig:
         ):
             detected = _find_xlights_show_folders()
             if detected:
-                config.show_folders = detected
-                config.active_show = next(iter(detected))
+                config.detected_folders = detected
+                config.show_folders = {}
+                config.active_show = ""
                 save_config(config)
         return config
 
-    # First run — auto-detect show folders
+    # First run — auto-detect show folders but don't commit them yet
     folders = _find_xlights_show_folders()
-    if folders:
-        active = next(iter(folders))
-        config = ServerConfig(show_folders=folders, active_show=active)
-    else:
-        # No show folders found — create empty config so tools can report the issue
-        config = ServerConfig(show_folders={}, active_show="")
+    config = ServerConfig(
+        show_folders={},
+        active_show="",
+        detected_folders=folders,
+    )
 
     save_config(config)
     return config
