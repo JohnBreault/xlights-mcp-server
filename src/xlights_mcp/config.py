@@ -18,7 +18,7 @@ AUDIO_CACHE_DIR = CONFIG_DIR / "audio_cache"
 class FPPConfig(BaseModel):
     """Falcon Pi Player connection settings."""
 
-    host: str = "rudolph.local"
+    host: str = "fpp.local"
     port: int = 80
     timeout: float = 10.0
 
@@ -36,7 +36,7 @@ class ServerConfig(BaseModel):
     """Main server configuration."""
 
     show_folders: dict[str, str] = Field(default_factory=dict)
-    active_show: str = "christmas"
+    active_show: str = ""
     fpp: FPPConfig = Field(default_factory=FPPConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
 
