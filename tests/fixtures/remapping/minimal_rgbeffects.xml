@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xrgb>
+  <models>
+    <model name="Mega Tree" DisplayAs="Tree Flat" parm1="25" parm2="40" StringType="RGB Nodes" Controller="Falcon F16"/>
+    <model name="Arch Left" DisplayAs="Arches" parm1="50" parm2="1" StringType="RGB Nodes" Controller="Falcon F16"/>
+    <model name="Snowflake 1" DisplayAs="Custom" parm1="100" parm2="1" StringType="RGB Nodes" Controller="Falcon F16">
+      <faceInfo Name="Singing Snowflake"/>
+    </model>
+    <modelGroup name="All Arches" models="Arch Left,Arch Right" layout="minimalGrid" GridSize="400,400"/>
+  </models>
+</xrgb>

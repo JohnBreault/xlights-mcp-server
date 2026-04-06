@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xsequence BaseChannel="0" ChanCtrlBasic="0" ChanCtrlColor="0" FixedPointTiming="1" FrequencyAdjust="0" FrequencyAdjust2="0" LowDefinition="0">
+  <head>
+    <version>2024.10</version>
+    <author>Test Author</author>
+    <author-email/>
+    <author-website/>
+    <song>TestSong</song>
+    <artist>Test Artist</artist>
+    <album/>
+    <MusicURL/>
+    <comment/>
+    <sequenceTiming>25 ms</sequenceTiming>
+    <sequenceType>Media</sequenceType>
+    <mediaFile>audio.mp3</mediaFile>
+    <sequenceDuration>60.000</sequenceDuration>
+  </head>
+  <ColorPalettes>
+    <ColorPalette>C_BUTTON_Palette1=#FF0000,C_BUTTON_Palette2=#00FF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+    <ColorPalette>C_BUTTON_Palette1=#0000FF,C_BUTTON_Palette2=#FFFF00,C_CHECKBOX_Palette1=1,C_CHECKBOX_Palette2=1</ColorPalette>
+  </ColorPalettes>
+  <EffectDB>
+    <Effect>E_TEXTCTRL_Eff_On_End=100,E_TEXTCTRL_Eff_On_Start=100,E_TEXTCTRL_On_Transparency=0,Name=On</Effect>
+    <Effect>E_CHOICE_Chase_Type1=Left-Right,E_SLIDER_Chase_Rotations=10,Name=Chase</Effect>
+    <Effect>E_SLIDER_Twinkle_Count=50,E_SLIDER_Twinkle_Steps=30,Name=Twinkle</Effect>
+  </EffectDB>
+  <DisplayElements>
+    <Element collapsed="0" type="model" name="Mega Tree" visible="1"/>
+    <Element collapsed="0" type="model" name="Arch Left" visible="1"/>
+    <Element collapsed="0" type="model" name="Snowflake 1" visible="1"/>
+    <Element collapsed="0" type="timing" name="Lyrics" visible="1"/>
+  </DisplayElements>
+  <ElementEffects>
+    <Element type="timing" name="Lyrics">
+      <EffectLayer>
+        <Effect label="La la la" startTime="0" endTime="2000"/>
+        <Effect label="Do re mi" startTime="2000" endTime="4000"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Mega Tree">
+      <EffectLayer>
+        <Effect ref="0" name="On" startTime="0" endTime="5000" palette="0"/>
+        <Effect ref="1" name="Chase" startTime="5000" endTime="10000" palette="1"/>
+      </EffectLayer>
+      <EffectLayer>
+        <Effect ref="2" name="Twinkle" startTime="0" endTime="10000" palette="0"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Arch Left">
+      <EffectLayer>
+        <Effect ref="1" name="Chase" startTime="0" endTime="10000" palette="1"/>
+      </EffectLayer>
+    </Element>
+    <Element type="model" name="Snowflake 1">
+      <EffectLayer>
+        <Effect ref="0" name="On" startTime="0" endTime="3000" palette="0"/>
+        <Effect ref="2" name="Twinkle" startTime="3000" endTime="10000" palette="0"/>
+      </EffectLayer>
+    </Element>
+  </ElementEffects>
+</xsequence>
