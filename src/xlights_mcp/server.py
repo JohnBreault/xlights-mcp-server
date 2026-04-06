@@ -47,11 +47,10 @@ def list_shows() -> dict:
     if not config.show_folders:
         return {
             "error": "No xLights show folders found.",
-            "hint": (
-                "No show folders were auto-detected. Make sure xLights is installed "
-                "and has at least one show folder containing xlights_rgbeffects.xml. "
-                "Common locations: ~/Documents/xLights/, ~/xLights/, or iCloud Drive. "
-                "You can also manually create ~/.xlights-mcp/config.json with your paths."
+            "action_required": (
+                "Ask the user for the full path to their xLights show directory. "
+                "This is the folder that contains their xlights_rgbeffects.xml file. "
+                "Once they provide it, call add_show_folder with the path."
             ),
         }
     shows = {}
@@ -63,6 +62,49 @@ def list_shows() -> dict:
             "active": name == config.active_show,
         }
     return {"shows": shows, "active": config.active_show}
+
+
+@mcp.tool()
+def add_show_folder(path: str, name: str | None = None) -> dict:
+    """Add an xLights show folder by path.
+
+    Use this when auto-detection doesn't find the user's show directory.
+    The folder must contain an xlights_rgbeffects.xml file.
+
+    Args:
+        path: Full filesystem path to the xLights show folder
+        name: Optional display name for the show (derived from folder name if omitted)
+    """
+    config = get_config()
+    show_path = Path(path).expanduser().resolve()
+
+    if not show_path.exists():
+        return {"error": f"Path does not exist: {show_path}"}
+
+    if not show_path.is_dir():
+        return {"error": f"Path is not a directory: {show_path}"}
+
+    if not (show_path / "xlights_rgbeffects.xml").exists():
+        return {
+            "error": f"Not a valid xLights show folder (missing xlights_rgbeffects.xml): {show_path}",
+            "hint": "The show folder should contain xlights_rgbeffects.xml, which xLights creates automatically.",
+        }
+
+    show_name = name or show_path.name.lower()
+    config.show_folders[show_name] = str(show_path)
+    if not config.active_show:
+        config.active_show = show_name
+    save_config(config)
+
+    global _config
+    _config = config
+
+    return {
+        "success": True,
+        "show_name": show_name,
+        "path": str(show_path),
+        "active": config.active_show == show_name,
+    }
 
 
 @mcp.tool()
@@ -96,8 +138,7 @@ def list_models() -> dict:
     if not show_path or not show_path.exists():
         return {
             "error": "No active show folder configured.",
-            "hint": "Run list_shows first. If no shows are found, make sure xLights is installed "
-            "with at least one show folder, or manually configure ~/.xlights-mcp/config.json.",
+            "action_required": "Ask the user for the path to their xLights show directory and call add_show_folder.",
         }
 
     models = load_show_models(show_path)
@@ -121,8 +162,7 @@ def list_controllers() -> dict:
     if not show_path or not show_path.exists():
         return {
             "error": "No active show folder configured.",
-            "hint": "Run list_shows first. If no shows are found, make sure xLights is installed "
-            "with at least one show folder, or manually configure ~/.xlights-mcp/config.json.",
+            "action_required": "Ask the user for the path to their xLights show directory and call add_show_folder.",
         }
 
     controllers = load_show_controllers(show_path)
@@ -141,8 +181,7 @@ def list_sequences() -> dict:
     if not show_path or not show_path.exists():
         return {
             "error": "No active show folder configured.",
-            "hint": "Run list_shows first. If no shows are found, make sure xLights is installed "
-            "with at least one show folder, or manually configure ~/.xlights-mcp/config.json.",
+            "action_required": "Ask the user for the path to their xLights show directory and call add_show_folder.",
         }
 
     sequences = []
