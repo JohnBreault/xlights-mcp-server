@@ -31,6 +31,44 @@ def get_config() -> ServerConfig:
     return _config
 
 
+def _resolve_show(config: ServerConfig, show_name: str | None) -> dict | Path:
+    """Resolve which show folder to use.
+
+    Returns a Path on success, or a dict with action_required on ambiguity.
+    """
+    if show_name:
+        show_path = config.get_show_path(show_name)
+        if not show_path or not show_path.exists():
+            return {
+                "error": f"Show '{show_name}' not found.",
+                "available_shows": config.list_shows(),
+                "action_required": "Ask the user which show folder to use.",
+            }
+        return show_path
+
+    shows = config.list_shows()
+    if not shows:
+        return {
+            "error": "No show folders configured.",
+            "action_required": "Ask the user for their xLights show directory and call add_show_folder.",
+        }
+
+    if len(shows) == 1:
+        return config.get_show_path(shows[0])
+
+    # Multiple shows — ask the user to choose
+    return {
+        "status": "show_selection_required",
+        "available_shows": shows,
+        "active_show": config.active_show,
+        "action_required": (
+            "Multiple show folders are configured. Ask the user which show "
+            "this sequence should go into. Then call this tool again with "
+            "the show_name parameter set."
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Show Management Tools
 # ---------------------------------------------------------------------------
@@ -334,6 +372,7 @@ def create_sequence(
     palette_hint: str | None = None,
     theme: str | None = None,
     vocal_assignments: dict[str, str] | None = None,
+    show_name: str | None = None,
 ) -> dict:
     """Create an xLights sequence from a music file.
 
@@ -351,6 +390,9 @@ def create_sequence(
             or map individual models like {"Snowman": "Vocals", "Bulb Blue": "Full Mix Vocals"}.
             If omitted and singing models are detected, returns available models and
             tracks so you can prompt the user for assignments.
+        show_name: Which show folder to generate the sequence in (e.g., "christmas",
+            "halloween"). If omitted and multiple shows exist, returns available
+            shows so you can ask the user which one to use.
     """
     from xlights_mcp.sequencer.engine import generate_sequence
 
@@ -362,9 +404,13 @@ def create_sequence(
         return {"error": f"Invalid mode '{mode}'. Use: auto, guided, template"}
 
     config = get_config()
+    show_path = _resolve_show(config, show_name)
+    if isinstance(show_path, dict):
+        return show_path
+
     result = generate_sequence(
         mp3_path=path,
-        show_path=config.active_show_path,
+        show_path=show_path,
         mode=mode,
         palette_hint=palette_hint,
         theme=theme,
@@ -375,7 +421,7 @@ def create_sequence(
 
 
 @mcp.tool()
-def preview_plan(mp3_path: str, mode: str = "auto") -> dict:
+def preview_plan(mp3_path: str, mode: str = "auto", show_name: str | None = None) -> dict:
     """Preview the sequence generation plan without creating a file.
 
     Shows what effects would be placed on which models, based on the
@@ -384,6 +430,8 @@ def preview_plan(mp3_path: str, mode: str = "auto") -> dict:
     Args:
         mp3_path: Path to the .mp3 file
         mode: Generation mode — "auto", "guided", or "template"
+        show_name: Which show folder to preview against. If omitted and multiple
+            shows exist, returns available shows so you can ask the user.
     """
     from xlights_mcp.sequencer.engine import preview_sequence_plan
 
@@ -392,9 +440,13 @@ def preview_plan(mp3_path: str, mode: str = "auto") -> dict:
         return {"error": f"File not found: {path}"}
 
     config = get_config()
+    show_path = _resolve_show(config, show_name)
+    if isinstance(show_path, dict):
+        return show_path
+
     return preview_sequence_plan(
         mp3_path=path,
-        show_path=config.active_show_path,
+        show_path=show_path,
         mode=mode,
         audio_config=config.audio,
     )
@@ -410,6 +462,7 @@ async def remap_sequence(
     import_path: str,
     overrides: dict[str, str] | None = None,
     pixel_threshold: float = 0.70,
+    show_name: str | None = None,
 ) -> dict:
     """Import a sequence from a different show layout and remap it to your models.
 
@@ -423,6 +476,9 @@ async def remap_sequence(
             These take precedence over automatic matching.
         pixel_threshold: Similarity threshold for pixel count matching (0.0-1.0).
             Default 0.70 means models must have at least 70% pixel count similarity.
+        show_name: Which show folder to import into (e.g., "christmas", "halloween").
+            If omitted and multiple shows exist, returns available shows so you can
+            ask the user which one to use.
 
     Returns:
         Dict with mapping report, output path, and summary statistics.
@@ -452,13 +508,12 @@ async def remap_sequence(
             error=f"Unsupported file type: {ext}. Use .xsq or .zip.",
         ).model_dump()
 
-    # Load user show
+    # Resolve show folder
     config = get_config()
-    show_path = config.active_show_path
-    if not show_path or not show_path.exists():
-        return RemapResult(
-            success=False, error="No active show configured. Use switch_show() first."
-        ).model_dump()
+    show_result = _resolve_show(config, show_name)
+    if isinstance(show_result, dict):
+        return show_result
+    show_path = show_result
 
     try:
         show_config = load_show_config(show_path)
