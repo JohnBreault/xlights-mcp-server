@@ -3,7 +3,17 @@
 **Feature Branch**: `001-sequence-model-remapping`
 **Created**: 2025-07-18
 **Status**: Draft
-**Input**: User description: "Applying imported sequences to the user's model layout — import an existing .xsq sequence created for a different show layout and intelligently remap/apply it to the user's own model layout."
+**Input**: User description: "Applying imported sequences to the user's model layout — import an existing .xsq sequence or .zip package created for a different show layout and intelligently remap/apply it to the user's own model layout."
+
+## Clarifications
+
+### Session 2026-04-06
+
+- Q: How should zip asset files (mp3, mp4, png) be handled during import? → A: Auto-copy all dependent assets to the user's show folder.
+- Q: Should the imported show's xlights_rgbeffects.xml be parsed for model metadata? → A: Yes, parse it for full model metadata (pixel count, type, face definitions).
+- Q: Should singing face models be matched only to other singing models? → A: Yes, singing models only match to singing models; skip if no singing target available.
+- Q: Should the tool accept both standalone .xsq files and .zip packages? → A: Yes, accept both; zip gives richer matching data, fall back to xsq-only when no zip.
+- Q: Should model type (display_as) be added as a matching signal? → A: Yes, insert type matching between word match and prop match (priority 2.5).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -95,14 +105,24 @@ After reviewing the mapping report, the user disagrees with some matches and wan
 - What happens when the imported sequence references model groups rather than individual models? Effects on model groups in the imported file are included in the remapping — the system matches group names using the same matching rules.
 - What happens when two imported models are equally good matches for the same user model? The system assigns the first match (by matching priority order) and the second imported model continues to the next matching rule.
 - What happens when the user runs the remap tool on the same imported sequence a second time? A new output file is generated with the next incremented suffix (e.g., `(remapped 2).xsq`), never overwriting the previous output.
+- What happens when the zip contains no `.xsq` file? The system returns a clear error: "No .xsq sequence file found in the zip archive."
+- What happens when the zip contains multiple `.xsq` files? The system lists them and asks the user to specify which one to import.
+- What happens when a media asset from the zip already exists in the user's show folder? The existing file is preserved (not overwritten); the import logs that the asset was already present.
+- What happens when the imported zip has no `xlights_rgbeffects.xml`? The system falls back to xsq-only matching (no imported pixel counts or model types) and notes the limitation in the mapping report.
+- What happens when an imported singing model has no matching singing model in the user's show? The imported singing model is listed as unmatched; its face effects are not placed on a non-singing model.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: System MUST accept a file path to an .xsq sequence file and parse its model names, effect placements, palettes, and timing data.
+- **FR-001**: System MUST accept a file path to either a standalone `.xsq` sequence file or a `.zip` package containing a sequence and associated assets. For zip input, the system MUST locate the `.xsq` file within the archive automatically.
+- **FR-001a**: When the input is a `.zip` package, the system MUST extract and copy all dependent media assets (`.mp3`, `.mp4`, `.png`) into the user's active show folder (or a subfolder matching the imported show structure).
+- **FR-001b**: When the input is a `.zip` package containing `xlights_rgbeffects.xml`, the system MUST parse it to obtain full model metadata (name, display_as, pixel_count, face_definitions) for the imported models.
+- **FR-001c**: When the input is a standalone `.xsq` file without accompanying `xlights_rgbeffects.xml`, the system MUST fall back to xsq-only matching (model names from the sequence, no imported pixel counts or type data).
 - **FR-002**: System MUST read the user's active show configuration to obtain the full list of user models with their properties (name, display_as, pixel_count, face_definitions, submodels).
-- **FR-003**: System MUST execute model matching in strict priority order: (1) exact name match, (2) similar word match, (3) similar prop with pixel count threshold, (4) fallback pixel count match.
+- **FR-003**: System MUST execute model matching in strict priority order: (1) exact name match, (2) similar word match, (3) model type match (`display_as`), (4) similar prop with pixel count threshold, (5) fallback pixel count match.
+- **FR-003a**: Model type matching (priority 3) MUST match models that share the same `display_as` value (e.g., both "Arches", both "Tree") and have pixel counts within the 70% threshold. This rule requires imported model metadata from `xlights_rgbeffects.xml`; it is skipped for standalone `.xsq` imports.
+- **FR-003b**: Singing face models (models with `face_definitions`) MUST only be matched to other models that also have `face_definitions`. If no singing target is available in the user's show, the imported singing model MUST be listed as unmatched and its effects skipped rather than placed on a non-singing model.
 - **FR-004**: Exact name matching MUST be case-insensitive and ignore leading/trailing whitespace.
 - **FR-005**: Similar word matching MUST tokenize model names into individual words and match models that share at least one significant word (excluding common filler words such as "left", "right", "1", "2", "top", "bottom").
 - **FR-006**: Similar prop matching MUST verify that two models sharing a prop-type word (e.g., "snowflake", "arch", "tree") also have pixel counts within 70% of each other, calculated as `min(a, b) / max(a, b) >= 0.70`.
@@ -123,11 +143,11 @@ After reviewing the mapping report, the user disagrees with some matches and wan
 
 ### Key Entities
 
-- **Imported Sequence**: The source .xsq file from a different show layout. Contains model names, effect placements with timing, color palettes, and effect definitions. Does not contain pixel count or model type data — only model names as referenced in the sequence.
+- **Imported Sequence**: The source `.xsq` file (standalone or within a `.zip` package) from a different show layout. Contains model names, effect placements with timing, color palettes, and effect definitions. When provided as a `.zip`, may also include `xlights_rgbeffects.xml` (full model metadata), audio (`.mp3`), and media assets (`.mp4`, `.png`) used by effects.
+- **Imported Show Metadata**: The `xlights_rgbeffects.xml` from the source show (available in `.zip` imports). Provides pixel counts, `display_as` model types, and `face_definitions` for imported models, enabling richer matching.
 - **User Show Layout**: The user's active show configuration containing all their models with full metadata (name, display_as, pixel_count, face_definitions, submodels, controller assignments).
-- **Model Mapping**: A one-to-one pairing between an imported model name and a user model name, annotated with the matching rule that produced it (exact, similar word, similar prop, pixel count fallback, or manual override).
-- **Mapping Report**: A structured summary of all mapping decisions — matched pairs, unmatched imported models, unmatched user models, and match statistics.
-- **Remapped Sequence**: The generated output .xsq file containing effects from the imported sequence placed on the user's matched models, with all timing and parameters preserved.
+- **Model Mapping**: A one-to-one pairing between an imported model name and a user model name, annotated with the matching rule that produced it (exact, similar word, model type, similar prop, pixel count fallback, or manual override).
+- **Mapping Report**: A structured summary of all mapping decisions — matched pairs, unmatched imported models, unmatched user models, match statistics, and a list of copied assets.
 
 ## Success Criteria *(mandatory)*
 
@@ -144,10 +164,11 @@ After reviewing the mapping report, the user disagrees with some matches and wan
 ## Assumptions
 
 - Users have a valid active show loaded with at least one model defined in `xlights_rgbeffects.xml` and `xlights_networks.xml`.
-- The imported .xsq file follows the standard xLights sequence format (XML structure with head, ColorPalettes, EffectDB, and ElementEffects sections).
-- Pixel count for imported models is not available from the .xsq file itself — the system can only use pixel count data from the user's show configuration for the user's models. Pixel count comparisons in the similar-prop and fallback rules rely on user-side pixel counts and, where available, any pixel count metadata embedded in the imported sequence's effect parameters.
+- The imported `.xsq` file follows the standard xLights sequence format (XML structure with head, ColorPalettes, EffectDB, and ElementEffects sections).
+- When imported as a `.zip`, the archive follows common xLights community packaging conventions: a root folder containing `xlights_rgbeffects.xml`, a `Sequences/` subfolder with the `.xsq`, and a `_lost/` or root-level folder with media assets.
+- When the imported show's `xlights_rgbeffects.xml` is available (zip import), pixel counts and model types are available for both sides of the matching. For standalone `.xsq` imports, only user-side metadata is available and model type matching (priority 3) is skipped.
 - The 70% pixel count threshold is a reasonable default for determining visual compatibility between models. This threshold may be adjusted in future iterations based on user feedback.
 - Common filler words excluded from word matching (e.g., "left", "right", "1", "2", "top", "bottom", "a", "the") follow standard xLights community naming conventions.
 - Model group matching follows the same rules as individual model matching — if a group name matches, all effects placed on that group in the imported sequence are mapped to the matched group in the user's layout.
-- The media file (audio track) associated with the imported sequence is assumed to already exist in the user's show folder or be accessible at the referenced path. The remapping feature does not handle audio file transfer.
+- Copied media assets (mp3, mp4, png) are placed in the user's show folder preserving the relative path structure from the zip. Existing files with the same name are not overwritten.
 - This feature does not perform effect parameter scaling (e.g., adjusting "butterfly" speed or "marquee" count based on differing pixel counts). Effects are transferred with their original parameters. Parameter scaling may be a future enhancement.
