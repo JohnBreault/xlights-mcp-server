@@ -21,6 +21,7 @@ from xlights_mcp.remapper.models import (
     ImportedModelMeta,
     ImportedSequenceData,
 )
+from xlights_mcp.xlights.show import model_pixel_count
 
 logger = logging.getLogger(__name__)
 
@@ -293,20 +294,7 @@ def _parse_imported_metadata(
                 continue
 
             display_as = elem.get("DisplayAs", "")
-            pixel_count = 0
-            parm1 = elem.get("parm1", "0")
-            parm2 = elem.get("parm2", "0")
-            pixel_count_attr = elem.get("PixelCount", "")
-            if pixel_count_attr:
-                try:
-                    pixel_count = int(pixel_count_attr)
-                except ValueError:
-                    pass
-            elif parm1 and parm2:
-                try:
-                    pixel_count = int(parm1) * int(parm2)
-                except ValueError:
-                    pass
+            pixel_count = model_pixel_count(elem)
 
             face_definitions: list[str] = []
             for child in elem:
