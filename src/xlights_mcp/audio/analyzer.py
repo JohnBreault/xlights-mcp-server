@@ -161,7 +161,7 @@ def analyze_stems(stem_paths: StemPaths, sr: int = 22050) -> StemAnalysis:
             # Onset detection
             onset_env = librosa.onset.onset_strength(y=y, sr=loaded_sr)
             onset_frames = librosa.onset.onset_detect(
-                onset_envelope=onset_env, sr=loaded_sr, backtrack=True
+                onset_envelope=onset_env, sr=loaded_sr, backtrack=False
             )
             onset_times = librosa.frames_to_time(onset_frames, sr=loaded_sr).tolist()
 
