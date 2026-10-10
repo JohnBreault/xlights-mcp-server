@@ -479,7 +479,7 @@ def _generate_auto(
     Uses a 3-layer approach with model group synchronization:
       Layer 0: Background bed (twinkle, wash) — runs full section
       Layer 1: Motion (chase, spirals) — synced to bars
-      Layer 2: Accent hits (shockwave, morph) — on select downbeats only
+      Layer 2: Accent hits (shockwave, morph) — on drum hits, or the beat grid without stems
 
     Grouped models (canes, arches, etc.) get identical effects for synchronization.
     """
@@ -646,8 +646,10 @@ def _generate_auto(
                     accent_interval = 2 if section.energy_level > 0.85 else 4
                     accent_times = accent_times[::accent_interval]
                 else:
-                    accent_interval = 2 if section.energy_level > 0.85 else 4
-                    accent_times = [db for i, db in enumerate(downbeats_in_section) if i % accent_interval == 0]
+                    # No drum stems: hit the beat grid at roughly the density the
+                    # drum path aims for (every 2nd/4th drum hit ≈ every 1st/2nd beat)
+                    accent_interval = 1 if section.energy_level > 0.85 else 2
+                    accent_times = section_beats.get(sec_idx, [])[::accent_interval]
 
                 beat_dur_ms = int(60000 / max(analysis.beats.tempo, 60))
                 accent_dur = min(beat_dur_ms, 500)
