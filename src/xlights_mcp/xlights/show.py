@@ -17,6 +17,24 @@ from xlights_mcp.xlights.models import (
 logger = logging.getLogger(__name__)
 
 
+def model_pixel_count(m) -> int:
+    """Pixel count of a <model> element (ElementTree or lxml).
+
+    Checks PixelCount, then parm1 x parm2 (pre-2026 layouts), then
+    NumStrings x NodesPerString (xLights 2026+ layouts, which dropped parm1/parm2).
+    """
+    for a, b in ((None, "PixelCount"), ("parm1", "parm2"), ("NumStrings", "NodesPerString")):
+        try:
+            if a is None:
+                if m.get(b):
+                    return int(m.get(b))
+            elif m.get(a) and m.get(b):
+                return int(m.get(a)) * int(m.get(b))
+        except ValueError:
+            continue
+    return 0
+
+
 def load_show_config(show_path: Path) -> ShowConfig:
     """Load complete show configuration from an xLights show folder.
 
@@ -108,20 +126,7 @@ def load_show_models(show_path: Path) -> list[LightModel]:
                 if child_name:
                     submodels.append(SubModel(name=child_name, parent=m.get("name", "")))
 
-            pixel_count = 0
-            parm1 = m.get("parm1", "0")
-            parm2 = m.get("parm2", "0")
-            pixel_count_attr = m.get("PixelCount", "")
-            if pixel_count_attr:
-                try:
-                    pixel_count = int(pixel_count_attr)
-                except ValueError:
-                    pass
-            elif parm1 and parm2:
-                try:
-                    pixel_count = int(parm1) * int(parm2)
-                except ValueError:
-                    pass
+            pixel_count = model_pixel_count(m)
 
             model = LightModel(
                 name=m.get("name", ""),
@@ -146,13 +151,17 @@ def load_model_groups(show_path: Path) -> list[ModelGroup]:
 
     tree = ET.parse(effects_file)
     root = tree.getroot()
-    models_elem = root.find("models")
-    if models_elem is None:
-        return []
 
+    # xLights writes groups to their own <modelGroups> section; also accept
+    # <modelGroup> entries nested under <models>.
     groups = []
-    for m in models_elem:
-        if m.tag == "modelGroup":
+    for section in ("modelGroups", "models"):
+        section_elem = root.find(section)
+        if section_elem is None:
+            continue
+        for m in section_elem:
+            if m.tag != "modelGroup":
+                continue
             members_str = m.get("models", "")
             members = [name.strip() for name in members_str.split(",") if name.strip()]
             group = ModelGroup(
