@@ -68,7 +68,11 @@ def stdin_is_pipe() -> bool:
 def run(mcp: FastMCP) -> None:
     """Equivalent of mcp.run() (stdio) using the polling stdin reader."""
     stdin = anyio.wrap_file(
-        io.TextIOWrapper(io.BufferedReader(_PolledPipe(sys.stdin.fileno())), encoding="utf-8")
+        io.TextIOWrapper(
+            io.BufferedReader(_PolledPipe(sys.stdin.fileno())),
+            encoding="utf-8",
+            errors="replace",
+        )
     )
 
     async def _serve() -> None:
