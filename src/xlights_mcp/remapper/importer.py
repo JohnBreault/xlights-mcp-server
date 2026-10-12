@@ -90,7 +90,7 @@ def parse_xsq(xsq_path: Path) -> tuple[ImportedSequenceData, etree._Element]:
             if ename not in model_names:
                 model_names.append(ename)
             model_effect_counts[ename] = model_effect_counts.get(ename, 0) + sum(
-                len(layer.findall("Effect")) for layer in elem.findall("EffectLayer")
+                1 for _ in elem.iter("Effect")
             )
         elif etype == "timing":
             if ename not in timing_track_names:
