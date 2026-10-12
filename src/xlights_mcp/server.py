@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -662,6 +663,13 @@ def main():
     config = get_config()
     logger.info(f"Active show: {config.active_show}")
     logger.info(f"Show path: {config.active_show_path}")
+
+    if sys.platform == "win32":
+        from xlights_mcp import win_stdio
+
+        if win_stdio.stdin_is_pipe():
+            win_stdio.run(mcp)
+            return
 
     mcp.run()
 
