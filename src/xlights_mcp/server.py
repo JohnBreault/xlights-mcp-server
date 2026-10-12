@@ -548,7 +548,7 @@ async def remap_sequence(
         show_config.models, show_config.model_groups
     )
     imported_candidates = build_candidates_from_import(
-        seq_data.model_names, imported_meta
+        seq_data.model_names, imported_meta, seq_data.model_effect_counts
     )
 
     # Run matching
@@ -569,6 +569,7 @@ async def remap_sequence(
             root=lxml_root,
             report=report,
             show_folder=show_path,
+            fallback_name=import_file.stem,
         )
     except Exception as e:
         return RemapResult(

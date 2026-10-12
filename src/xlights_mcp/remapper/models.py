@@ -98,6 +98,7 @@ class MatchCandidate(BaseModel):
     normalized_name: str = ""
     name_tokens: list[str] = Field(default_factory=list)
     pixel_count: int = 0
+    effect_count: int | None = None
     display_as: str = ""
     is_group: bool = False
     is_singing: bool = False
@@ -138,6 +139,7 @@ class ModelMapping(BaseModel):
     rule: MatchRule
     confidence: float = 1.0
     pixel_ratio: float | None = None
+    target_face_definition: str | None = None
     shared_tokens: list[str] = Field(default_factory=list)
     notes: str = ""
 
@@ -234,6 +236,7 @@ class ImportedSequenceData(BaseModel):
     duration_ms: int = 0
 
     model_names: list[str] = Field(default_factory=list)
+    model_effect_counts: dict[str, int] = Field(default_factory=dict)
     timing_track_names: list[str] = Field(default_factory=list)
 
     total_effects: int = 0
