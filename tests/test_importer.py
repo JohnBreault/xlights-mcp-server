@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 import pytest
 from lxml import etree
 
-from xlights_mcp.remapper.importer import parse_xsq, _parse_imported_metadata
+from xlights_mcp.remapper.importer import (
+    _parse_imported_metadata,
+    import_package,
+    parse_xsq,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "remapping"
 
@@ -24,6 +29,11 @@ class TestParseXsq:
         assert "Arch Left" in seq_data.model_names
         assert "Snowflake 1" in seq_data.model_names
         assert len(seq_data.model_names) == 3
+        assert seq_data.model_effect_counts == {
+            "Mega Tree": 3,
+            "Arch Left": 1,
+            "Snowflake 1": 2,
+        }
 
     def test_timing_track_names_extracted(self):
         seq_data, root = parse_xsq(FIXTURES / "minimal_sequence.xsq")
@@ -114,3 +124,33 @@ class TestParseImportedMetadata:
     def test_nonexistent_file(self):
         result = _parse_imported_metadata(Path("/nonexistent.xml"))
         assert result == []
+
+
+class TestImportPackageZip:
+    def test_reads_archive_metadata_when_show_file_already_exists(self, tmp_path):
+        zip_path = tmp_path / "package.zip"
+        show_dir = tmp_path / "show"
+        show_dir.mkdir()
+        (show_dir / "xlights_rgbeffects.xml").write_text(
+            '<xlights><models><model name="Show Model"/></models></xlights>'
+        )
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.write(FIXTURES / "minimal_sequence.xsq", "minimal_sequence.xsq")
+            zf.writestr(
+                "nested/xlights_rgbeffects.xml",
+                '<xlights><models><model name="Nested Metadata"/></models></xlights>',
+            )
+            zf.write(FIXTURES / "minimal_rgbeffects.xml", "xlights_rgbeffects.xml")
+
+        _, _, imported_meta, assets = import_package(zip_path, show_dir)
+
+        assert imported_meta is not None
+        assert "Mega Tree" in {model.name for model in imported_meta}
+        assert "Show Model" not in {model.name for model in imported_meta}
+        assert "Nested Metadata" not in {model.name for model in imported_meta}
+        assert any(
+            asset.archive_path == "xlights_rgbeffects.xml"
+            and asset.status.value == "already_exists"
+            for asset in assets
+        )

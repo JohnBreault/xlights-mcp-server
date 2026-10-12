@@ -78,6 +78,7 @@ def parse_xsq(xsq_path: Path) -> tuple[ImportedSequenceData, etree._Element]:
 
     # --- model names from ElementEffects (authoritative for which models have effects) ---
     model_names: list[str] = []
+    model_effect_counts: dict[str, int] = {}
     timing_track_names: list[str] = []
 
     for elem in root.iter("Element"):
@@ -88,6 +89,9 @@ def parse_xsq(xsq_path: Path) -> tuple[ImportedSequenceData, etree._Element]:
         if etype == "model":
             if ename not in model_names:
                 model_names.append(ename)
+            model_effect_counts[ename] = model_effect_counts.get(ename, 0) + sum(
+                len(layer.findall("Effect")) for layer in elem.findall("EffectLayer")
+            )
         elif etype == "timing":
             if ename not in timing_track_names:
                 timing_track_names.append(ename)
@@ -110,6 +114,7 @@ def parse_xsq(xsq_path: Path) -> tuple[ImportedSequenceData, etree._Element]:
         media_file=media_file,
         duration_ms=duration_ms,
         model_names=model_names,
+        model_effect_counts=model_effect_counts,
         timing_track_names=timing_track_names,
         total_effects=total_effects,
         palette_count=palette_count,
@@ -279,8 +284,15 @@ def _parse_imported_metadata(
     if not rgbeffects_path.exists():
         return []
 
-    tree = etree.parse(str(rgbeffects_path))
-    root = tree.getroot()
+    tree = etree.parse(
+        str(rgbeffects_path),
+        parser=etree.XMLParser(resolve_entities=False, no_network=True),
+    )
+    return _parse_imported_metadata_root(tree.getroot())
+
+
+def _parse_imported_metadata_root(root: etree._Element) -> list[ImportedModelMeta]:
+    """Parse imported model metadata from an xlights_rgbeffects.xml root."""
     models_elem = root.find("models")
     if models_elem is None:
         return []
@@ -384,14 +396,35 @@ def import_package(
 
         # Look for xlights_rgbeffects.xml in extracted assets
         imported_meta: list[ImportedModelMeta] | None = None
-        for asset in assets:
-            if (
-                PurePosixPath(asset.archive_path).name == "xlights_rgbeffects.xml"
+        metadata_assets = sorted(
+            (
+                asset
+                for asset in assets
+                if PurePosixPath(asset.archive_path).name == "xlights_rgbeffects.xml"
                 and asset.status in (AssetStatus.EXTRACTED, AssetStatus.ALREADY_EXISTS)
-            ):
-                meta_path = Path(asset.destination_path)
-                imported_meta = _parse_imported_metadata(meta_path)
-                break
+            ),
+            key=lambda asset: (
+                len(PurePosixPath(asset.archive_path).parts),
+                asset.archive_path,
+            ),
+        )
+        if metadata_assets:
+            asset = metadata_assets[0]
+            with zipfile.ZipFile(import_path, "r") as zf:
+                info = next(
+                    entry
+                    for entry in zf.infolist()
+                    if entry.filename == asset.archive_path
+                )
+                with zf.open(info) as xml_file:
+                    imported_meta = _parse_imported_metadata_root(
+                        etree.parse(
+                            xml_file,
+                            parser=etree.XMLParser(
+                                resolve_entities=False, no_network=True
+                            ),
+                        ).getroot()
+                    )
 
         return seq_data, root, imported_meta, assets
 

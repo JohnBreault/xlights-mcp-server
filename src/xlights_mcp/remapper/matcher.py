@@ -92,6 +92,7 @@ def build_candidates_from_user_show(
 def build_candidates_from_import(
     model_names: list[str],
     imported_meta: list[ImportedModelMeta] | None = None,
+    model_effect_counts: dict[str, int] | None = None,
 ) -> list[MatchCandidate]:
     """Convert imported model names into MatchCandidates.
 
@@ -110,6 +111,7 @@ def build_candidates_from_import(
             candidates.append(
                 MatchCandidate(
                     name=name,
+                    effect_count=(model_effect_counts or {}).get(name),
                     pixel_count=meta.pixel_count,
                     display_as=meta.display_as,
                     is_group=meta.is_group,
@@ -121,6 +123,7 @@ def build_candidates_from_import(
             candidates.append(
                 MatchCandidate(
                     name=name,
+                    effect_count=(model_effect_counts or {}).get(name),
                     source="imported",
                 )
             )
@@ -282,7 +285,12 @@ def _match_similar_word(
         px_ratio = _pixel_ratio(imp_px, usr_px) if imp_px and usr_px else 0.0
         return (-conf, -px_ratio)
 
-    unique_pairs.sort(key=_sort_key)
+    unique_pairs.sort(
+        key=lambda pair: (
+            *_sort_key(pair),
+            -(imported_pool[pair[0]].effect_count or 0),
+        )
+    )
 
     mappings: list[ModelMapping] = []
     used_imported: set[str] = set()
@@ -355,10 +363,10 @@ def _match_model_type(
     used_imported: set[str] = set()
     used_user: set[str] = set()
 
-    # Sort imported by pixel count descending (larger models first)
+    # Prefer the most sequenced source, then larger models.
     sorted_imported = sorted(
         imported_pool.items(),
-        key=lambda kv: kv[1].pixel_count,
+        key=lambda kv: (kv[1].effect_count or 0, kv[1].pixel_count),
         reverse=True,
     )
 
@@ -474,7 +482,11 @@ def _match_similar_prop(
     used_imported: set[str] = set()
     used_user: set[str] = set()
 
-    for imp_key, imp_cand in list(imported_pool.items()):
+    for imp_key, imp_cand in sorted(
+        imported_pool.items(),
+        key=lambda kv: kv[1].effect_count or 0,
+        reverse=True,
+    ):
         if imp_key in used_imported:
             continue
 
@@ -550,10 +562,10 @@ def _match_pixel_count_fallback(
     used_imported: set[str] = set()
     used_user: set[str] = set()
 
-    # Sort imported by pixel count descending
+    # Prefer the most sequenced source, then larger models.
     sorted_imported = sorted(
         imported_pool.items(),
-        key=lambda kv: kv[1].pixel_count,
+        key=lambda kv: (kv[1].effect_count or 0, kv[1].pixel_count),
         reverse=True,
     )
 
@@ -716,6 +728,17 @@ def match_models(
         all_mappings.extend(override_mappings)
         all_warnings.extend(override_warnings)
 
+    empty_effect_imported = {
+        key: candidate
+        for key, candidate in imported_pool.items()
+        if candidate.effect_count == 0
+    }
+    imported_pool = {
+        key: candidate
+        for key, candidate in imported_pool.items()
+        if candidate.effect_count != 0
+    }
+
     # --- Partition into singing / non-singing ---
     def _partition(
         pool: dict[str, MatchCandidate],
@@ -749,12 +772,22 @@ def match_models(
     all_mappings.extend(_run_pipeline(non_singing_imp, non_singing_usr))
 
     # --- Merge remaining pools for unmatched reasoning ---
-    remaining_imported = {**singing_imp, **non_singing_imp}
+    remaining_imported = {
+        **empty_effect_imported,
+        **singing_imp,
+        **non_singing_imp,
+    }
     remaining_user = {**singing_usr, **non_singing_usr}
 
     unmatched_imported, unmatched_user = _generate_unmatched_reasons(
         remaining_imported, remaining_user, threshold
     )
+
+    user_by_name = {candidate.name: candidate for candidate in user_candidates}
+    for mapping in all_mappings:
+        target = user_by_name.get(mapping.user_name)
+        if target and len(target.face_definitions) == 1:
+            mapping.target_face_definition = target.face_definitions[0]
 
     # --- Statistics ---
     dist = _compute_report_statistics(all_mappings)
