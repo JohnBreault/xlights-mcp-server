@@ -85,6 +85,11 @@ uv pip install -e ".[beats]"
 uv pip install -e ".[all]"
 ```
 
+The legacy `madmom` dependency in `beats` (and `all`) may not build on modern
+Python/NumPy, including Windows with Python 3.14. Default installs do not build or
+install it; core beat detection uses librosa. The uv metadata override only avoids
+building madmom during dependency resolution, not when explicitly installing these extras.
+
 ### Step 3: Show folder configuration
 
 On first run, the server **auto-detects** your xLights show folders by scanning common locations:
