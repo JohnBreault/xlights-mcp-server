@@ -9,7 +9,7 @@ def test_runtime_dependencies_support_current_mcp_api():
         (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     )["project"]
 
-    assert "mcp[cli]>=1.0.0,<2" in project["dependencies"]
+    assert "mcp[cli]>=1.2.0,<2" in project["dependencies"]
 
 
 def test_madmom_builds_with_uv_extra_build_dependency():
