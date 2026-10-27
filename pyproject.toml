@@ -46,6 +46,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/xlights_mcp"]
 
+# Avoid building this optional legacy release just to resolve default dependencies.
+[[tool.uv.dependency-metadata]]
+name = "madmom"
+version = "0.16.1"
+requires-dist = ["numpy>=1.13.4", "scipy>=0.16", "cython>=0.25", "mido>=1.2.8"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
