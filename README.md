@@ -46,7 +46,7 @@ Give it an `.mp3`, and it will analyze the beats, song structure, and energy —
 
 ## Prerequisites
 
-- **Python 3.11+**
+- **Python 3.11–3.13** (Python 3.12 recommended; PyTorch and audio ML packages do not yet support Python 3.15+)
 - **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
 - **ffmpeg** — for audio format handling (`brew install ffmpeg` on macOS, `apt install ffmpeg` on Linux)
 - **xLights** — installed with at least one show folder configured
@@ -65,7 +65,8 @@ cd xlights-mcp-server
 ### Step 2: Create a virtual environment and install
 
 ```bash
-uv venv
+uv venv --python 3.12
+source .venv/bin/activate
 uv pip install -e .
 ```
 

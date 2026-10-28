@@ -2,7 +2,7 @@
 name = "xlights-mcp-server"
 version = "0.1.0"
 description = "MCP server for generating xLights sequences from music analysis"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "mcp[cli]>=1.2.0,<2",
     "librosa>=0.10.0",
@@ -22,6 +22,7 @@ separation = [
 ]
 beats = [
     "madmom>=0.16.1",
+    "numpy<2",
 ]
 lyrics = [
     "openai-whisper>=20230918",
@@ -42,6 +43,9 @@ xlights-mcp-server = "xlights_mcp.server:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv.extra-build-dependencies]
+madmom = ["setuptools", "wheel", "Cython", "numpy<2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xlights_mcp"]
