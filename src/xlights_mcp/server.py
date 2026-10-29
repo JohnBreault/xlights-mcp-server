@@ -227,6 +227,17 @@ def list_controllers() -> dict:
     }
 
 
+_SKIP_DIRS = {"Backup", "RenderCache", "__MACOSX", ".git"}
+
+
+def _find_sequences(show_path: Path) -> list[Path]:
+    """All .xsq files in the show folder and its subfolders, skipping backups/caches."""
+    return sorted(
+        p for p in show_path.rglob("*.xsq")
+        if not _SKIP_DIRS.intersection(p.relative_to(show_path).parts)
+    )
+
+
 @mcp.tool()
 def list_sequences() -> dict:
     """List all sequences (.xsq files) in the active show folder."""
@@ -239,7 +250,7 @@ def list_sequences() -> dict:
         }
 
     sequences = []
-    for xsq in sorted(show_path.glob("*.xsq")):
+    for xsq in _find_sequences(show_path):
         sequences.append({"name": xsq.stem, "path": str(xsq)})
     return {
         "show": config.active_show,
@@ -266,7 +277,10 @@ def inspect_sequence(sequence_name: str) -> dict:
 
     xsq_path = show_path / f"{sequence_name}.xsq"
     if not xsq_path.exists():
-        return {"error": f"Sequence not found: {xsq_path}"}
+        matches = [p for p in _find_sequences(show_path) if p.stem == sequence_name]
+        if not matches:
+            return {"error": f"Sequence not found: {sequence_name}"}
+        xsq_path = matches[0]
 
     return read_xsq_summary(xsq_path)
 
