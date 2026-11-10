@@ -94,6 +94,15 @@ with bundled models. Installing it requires GitHub access and a C compiler
 (Xcode Command Line Tools on macOS, or Visual C++ Build Tools on Windows).
 The models have a separate non-commercial license; see the fork's README.
 Without this extra, core beat detection uses librosa.
+Because this extra requires NumPy 2, if you add it to an environment that
+already has `separation` or `lyrics`, upgrade the combined extras so PyTorch
+is upgraded too:
+
+```bash
+uv pip install --upgrade -e ".[separation,beats,lyrics]"
+```
+
+Omit any extras you do not use.
 
 ### Step 3: Show folder configuration
 
