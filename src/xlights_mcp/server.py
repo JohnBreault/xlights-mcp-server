@@ -232,10 +232,14 @@ _SKIP_DIRS = {"Backup", "RenderCache", "__MACOSX", ".git"}
 
 def _find_sequences(show_path: Path) -> list[Path]:
     """All .xsq files in the show folder and its subfolders, skipping backups/caches."""
-    return sorted(
-        p for p in show_path.rglob("*.xsq")
-        if not _SKIP_DIRS.intersection(p.relative_to(show_path).parts)
-    )
+    import fnmatch
+    import os
+
+    sequences: list[Path] = []
+    for root, dirs, files in os.walk(show_path):
+        dirs[:] = [name for name in dirs if name not in _SKIP_DIRS]
+        sequences.extend(Path(root) / name for name in fnmatch.filter(files, "*.xsq"))
+    return sorted(sequences)
 
 
 @mcp.tool()
