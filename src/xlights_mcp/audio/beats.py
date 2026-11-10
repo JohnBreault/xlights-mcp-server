@@ -87,12 +87,11 @@ def detect_beats(audio_path: Path, sr: int = 22050) -> BeatMap:
 def _try_madmom_downbeats(audio_path: Path) -> list[float]:
     """Attempt to use madmom for more accurate downbeat detection."""
     try:
-        from madmom.features.beats import RNNBeatProcessor, DBNBeatTrackingProcessor
-        from madmom.features.downbeats import RNNDownBeatProcessor, DBNDownBeatTrackingProcessor
+        from madmom.features.downbeats import DBNDownBeatTrackingProcessor, RNNDownBeatProcessor
 
         logger.info("Using madmom for downbeat detection")
         act = RNNDownBeatProcessor()(str(audio_path))
-        result = DBNDownBeatTrackingProcessor(fps=100)(act)
+        result = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)(act)
 
         # result is array of [time, beat_position]
         # downbeats are where beat_position == 1

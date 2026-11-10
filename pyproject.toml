@@ -21,7 +21,7 @@ separation = [
     "torch>=2.0.0",
 ]
 beats = [
-    "madmom>=0.16.1",
+    "madmom-modern @ https://github.com/imcmurray/madmom-modern/archive/df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz",
 ]
 lyrics = [
     "openai-whisper>=20230918",
@@ -46,11 +46,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/xlights_mcp"]
 
-# Avoid building this optional legacy release just to resolve default dependencies.
-[[tool.uv.dependency-metadata]]
-name = "madmom"
-version = "0.16.1"
-requires-dist = ["numpy>=1.13.4", "scipy>=0.16", "cython>=0.25", "mido>=1.2.8"]
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.ruff]
 target-version = "py311"

@@ -46,7 +46,7 @@ Give it an `.mp3`, and it will analyze the beats, song structure, and energy —
 
 ## Prerequisites
 
-- **Python 3.11+**
+- **Python 3.11+** (Python 3.12 recommended for optional audio features)
 - **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
 - **ffmpeg** — for audio format handling (`brew install ffmpeg` on macOS, `apt install ffmpeg` on Linux)
 - **xLights** — installed with at least one show folder configured
@@ -65,9 +65,13 @@ cd xlights-mcp-server
 ### Step 2: Create a virtual environment and install
 
 ```bash
-uv venv
+uv venv --python 3.12
 uv pip install -e .
 ```
+
+If you already created `.venv` with an unsupported Python version, remove it
+and run `uv venv --python 3.12` again. PyTorch wheels for `separation` and
+`lyrics` may not be available for the newest Python releases, including 3.15.
 
 **Optional extras for enhanced features:**
 
@@ -85,10 +89,11 @@ uv pip install -e ".[beats]"
 uv pip install -e ".[all]"
 ```
 
-The legacy `madmom` dependency in `beats` (and `all`) may not build on modern
-Python/NumPy, including Windows with Python 3.14. Default installs do not build or
-install it; core beat detection uses librosa. The uv metadata override only avoids
-building madmom during dependency resolution, not when explicitly installing these extras.
+The `beats` extra uses a pinned [modernized madmom fork](https://github.com/imcmurray/madmom-modern)
+with bundled models. Installing it requires GitHub access and a C compiler
+(Xcode Command Line Tools on macOS, or Visual C++ Build Tools on Windows).
+The models have a separate non-commercial license; see the fork's README.
+Without this extra, core beat detection uses librosa.
 
 ### Step 3: Show folder configuration
 
