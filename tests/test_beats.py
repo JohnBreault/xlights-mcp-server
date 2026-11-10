@@ -30,3 +30,9 @@ def test_madmom_downbeats_use_supported_time_signatures(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "madmom.features.downbeats", downbeats)
 
     assert _try_madmom_downbeats(tmp_path / "song.wav") == [0.5, 1.5]
+
+
+def test_madmom_downbeats_fall_back_when_not_installed(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "madmom", None)
+
+    assert _try_madmom_downbeats(tmp_path / "song.wav") == []
