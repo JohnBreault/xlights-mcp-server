@@ -65,9 +65,11 @@ def detect_beats(audio_path: Path, sr: int = 22050) -> BeatMap:
             downbeat_times.append(beat_times[i])
 
     # Try madmom for better beat detection if available
-    downbeat_times_madmom = _try_madmom_downbeats(audio_path)
+    downbeat_times_madmom, beats_per_bar = _try_madmom_downbeats(audio_path)
     if downbeat_times_madmom:
         downbeat_times = downbeat_times_madmom
+    else:
+        beats_per_bar = 4
 
     logger.info(
         f"Detected: tempo={tempo_val:.1f} BPM, "
@@ -81,10 +83,11 @@ def detect_beats(audio_path: Path, sr: int = 22050) -> BeatMap:
         beat_times=beat_times,
         downbeat_times=downbeat_times,
         onset_times=onset_times,
+        beats_per_bar=beats_per_bar,
     )
 
 
-def _try_madmom_downbeats(audio_path: Path) -> list[float]:
+def _try_madmom_downbeats(audio_path: Path) -> tuple[list[float], int]:
     """Attempt to use madmom for more accurate downbeat detection."""
     try:
         from madmom.features.downbeats import DBNDownBeatTrackingProcessor, RNNDownBeatProcessor
@@ -96,11 +99,12 @@ def _try_madmom_downbeats(audio_path: Path) -> list[float]:
         # result is array of [time, beat_position]
         # downbeats are where beat_position == 1
         downbeats = [float(row[0]) for row in result if int(row[1]) == 1]
+        beats_per_bar = max((int(row[1]) for row in result), default=4)
         logger.info(f"Madmom detected {len(downbeats)} downbeats")
-        return downbeats
+        return downbeats, beats_per_bar
     except ImportError:
         logger.debug("madmom not installed, using librosa-only downbeat estimation")
-        return []
+        return [], 4
     except Exception as e:
         logger.warning(f"madmom downbeat detection failed: {e}")
-        return []
+        return [], 4
