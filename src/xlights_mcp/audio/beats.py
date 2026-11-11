@@ -99,7 +99,15 @@ def _try_madmom_downbeats(audio_path: Path) -> tuple[list[float], int]:
         # result is array of [time, beat_position]
         # downbeats are where beat_position == 1
         downbeats = [float(row[0]) for row in result if int(row[1]) == 1]
-        beats_per_bar = max((int(row[1]) for row in result), default=4)
+        beat_positions = [int(row[1]) for row in result]
+        beats_per_bar = next(
+            (
+                previous
+                for previous, current in zip(beat_positions, beat_positions[1:])
+                if current == 1 and previous in (3, 4)
+            ),
+            4,
+        )
         logger.info(f"Madmom detected {len(downbeats)} downbeats")
         return downbeats, beats_per_bar
     except ImportError:
