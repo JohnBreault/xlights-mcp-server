@@ -18,8 +18,9 @@ def test_madmom_downbeats_use_supported_time_signatures(tmp_path, monkeypatch):
             return "activations"
 
     class DBNDownBeatTrackingProcessor:
-        def __init__(self, beats_per_bar, fps):
+        def __init__(self, beats_per_bar, num_tempi, fps):
             assert beats_per_bar == [3, 4]
+            assert num_tempi == 12
             assert fps == 100
 
         def __call__(self, activations):
