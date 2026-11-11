@@ -96,13 +96,17 @@ The models have a separate non-commercial license; see the fork's README.
 Without this extra, core beat detection uses librosa.
 Because this extra requires NumPy 2, if you add it to an environment that
 already has `separation` or `lyrics`, upgrade the combined extras so PyTorch
-is upgraded too:
+is upgraded too (on platforms that support PyTorch 2.3 or later):
 
 ```bash
 uv pip install --upgrade -e ".[separation,beats,lyrics]"
 ```
 
 Omit any extras you do not use.
+On Intel macOS, `separation` and `lyrics` use PyTorch 2.2.x with NumPy 1.x
+because newer PyTorch wheels are unavailable. The `beats` extra skips madmom on
+Intel macOS because it requires NumPy 2, so beat detection uses the librosa
+fallback there, including when installing `all`.
 
 ### Step 3: Show folder configuration
 

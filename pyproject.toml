@@ -18,14 +18,19 @@ dependencies = [
 [project.optional-dependencies]
 separation = [
     "demucs>=4.0.0",
-    "torch>=2.3.0",
+    "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 beats = [
-    "madmom-modern @ https://github.com/imcmurray/madmom-modern/archive/df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz",
+    "madmom-modern @ https://github.com/imcmurray/madmom-modern/archive/df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 lyrics = [
     "openai-whisper>=20230918",
-    "torch>=2.3.0",
+    "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 all = [
     "xlights-mcp-server[separation,beats,lyrics]",
