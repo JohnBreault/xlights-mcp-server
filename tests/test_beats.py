@@ -32,13 +32,17 @@ def test_madmom_downbeats_use_supported_time_signatures(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "madmom.features", ModuleType("madmom.features"))
     monkeypatch.setitem(sys.modules, "madmom.features.downbeats", downbeats)
 
-    assert _try_madmom_downbeats(tmp_path / "song.wav") == ([0.5, 2.0], 3)
+    assert _try_madmom_downbeats(tmp_path / "song.wav") == (
+        [0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+        [0.5, 2.0],
+        3,
+    )
 
 
 def test_madmom_downbeats_fall_back_when_not_installed(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "madmom", None)
 
-    assert _try_madmom_downbeats(tmp_path / "song.wav") == ([], 4)
+    assert _try_madmom_downbeats(tmp_path / "song.wav") == ([], [], 4)
 
 
 def test_detect_beats_propagates_three_beats_per_bar(tmp_path, monkeypatch):
@@ -52,9 +56,15 @@ def test_detect_beats_propagates_three_beats_per_bar(tmp_path, monkeypatch):
         frames_to_time=lambda frames, sr: np.asarray(frames, dtype=float) / sr,
     )
     monkeypatch.setattr(beats, "librosa", librosa_stub)
-    monkeypatch.setattr(beats, "_try_madmom_downbeats", lambda path: ([0.1], 3))
+    monkeypatch.setattr(
+        beats,
+        "_try_madmom_downbeats",
+        lambda path: ([0.5, 1.0, 1.5, 2.0], [0.5, 2.0], 3),
+    )
 
     result = beats.detect_beats(tmp_path / "song.wav")
 
-    assert result.downbeat_times == [0.1]
+    assert result.beat_times == [0.5, 1.0, 1.5, 2.0]
+    assert result.downbeat_times == [0.5, 2.0]
+    assert result.tempo == 120.0
     assert result.beats_per_bar == 3

@@ -65,9 +65,12 @@ def detect_beats(audio_path: Path, sr: int = 22050) -> BeatMap:
             downbeat_times.append(beat_times[i])
 
     # Try madmom for better beat detection if available
-    downbeat_times_madmom, beats_per_bar = _try_madmom_downbeats(audio_path)
-    if downbeat_times_madmom:
+    beat_times_madmom, downbeat_times_madmom, beats_per_bar = _try_madmom_downbeats(audio_path)
+    if beat_times_madmom:
+        beat_times = beat_times_madmom
         downbeat_times = downbeat_times_madmom
+        if len(beat_times) > 1:
+            tempo_val = 60.0 / float(np.median(np.diff(beat_times)))
     else:
         beats_per_bar = 4
 
@@ -87,7 +90,7 @@ def detect_beats(audio_path: Path, sr: int = 22050) -> BeatMap:
     )
 
 
-def _try_madmom_downbeats(audio_path: Path) -> tuple[list[float], int]:
+def _try_madmom_downbeats(audio_path: Path) -> tuple[list[float], list[float], int]:
     """Attempt to use madmom for more accurate downbeat detection."""
     try:
         from madmom.features.downbeats import DBNDownBeatTrackingProcessor, RNNDownBeatProcessor
@@ -98,6 +101,7 @@ def _try_madmom_downbeats(audio_path: Path) -> tuple[list[float], int]:
 
         # result is array of [time, beat_position]
         # downbeats are where beat_position == 1
+        beat_times = [float(row[0]) for row in result]
         downbeats = [float(row[0]) for row in result if int(row[1]) == 1]
         beat_positions = [int(row[1]) for row in result]
         beats_per_bar = next(
@@ -109,10 +113,10 @@ def _try_madmom_downbeats(audio_path: Path) -> tuple[list[float], int]:
             4,
         )
         logger.info(f"Madmom detected {len(downbeats)} downbeats")
-        return downbeats, beats_per_bar
+        return beat_times, downbeats, beats_per_bar
     except ImportError:
         logger.debug("madmom not installed, using librosa-only downbeat estimation")
-        return [], 4
+        return [], [], 4
     except Exception as e:
         logger.warning(f"madmom downbeat detection failed: {e}")
-        return [], 4
+        return [], [], 4
