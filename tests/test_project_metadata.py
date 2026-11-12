@@ -12,6 +12,17 @@ def test_runtime_dependencies_support_current_mcp_api():
     assert "mcp[cli]>=1.2.0,<2" in project["dependencies"]
 
 
+def test_intel_macos_uses_wheel_backed_numba_for_legacy_python():
+    project = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]
+
+    assert (
+        "numba<0.62; sys_platform == 'darwin' and platform_machine == 'x86_64' "
+        "and python_version < '3.13'"
+    ) in project["dependencies"]
+
+
 def test_modern_madmom_stays_optional_and_pinned():
     project = tomllib.loads(
         (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
