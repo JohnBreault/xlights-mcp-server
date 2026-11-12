@@ -25,7 +25,7 @@ separation = [
     "torch>=2.3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 beats = [
-    "madmom-modern @ https://github.com/imcmurray/madmom-modern/archive/df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "madmom-modern @ https://github.com/imcmurray/madmom-modern/archive/df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 lyrics = [
     "openai-whisper>=20230918",
