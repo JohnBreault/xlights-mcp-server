@@ -26,3 +26,26 @@ def test_modern_madmom_stays_optional_and_pinned():
         "df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz"
     )
     assert marker.strip() == "sys_platform != 'darwin' or platform_machine != 'x86_64'"
+
+
+def test_legacy_numpy_constraint_is_limited_to_supported_intel_macos_python():
+    project = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    optional_dependencies = project["project"]["optional-dependencies"]
+    for extra in ("separation", "lyrics"):
+        numpy_dependency = next(
+            dependency
+            for dependency in optional_dependencies[extra]
+            if dependency.startswith("numpy<2;")
+        )
+        assert numpy_dependency.split(";", 1)[1].strip() == (
+            "sys_platform == 'darwin' and platform_machine == 'x86_64' "
+            "and python_version < '3.13'"
+        )
+
+    assert (
+        "numpy>=2; sys_platform == 'darwin' and platform_machine == 'x86_64' "
+        "and python_version >= '3.13'"
+    ) in project["project"]["dependencies"]
