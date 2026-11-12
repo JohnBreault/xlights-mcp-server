@@ -101,6 +101,51 @@ usable sequence from any valid `.mp3` input.
 - MCP tools MUST return dicts with clear error messages, never
   raise unhandled exceptions.
 
+### VI. Testing/Test-Driven Development (NON-NEGOTIABLE)
+
+- All new functionality MUST follow the Red-Green-Refactor
+  cycle: write a failing test, implement the minimum code to
+  pass, then refactor.
+- Tests MUST be written and confirmed to fail before any
+  production code is written for that behaviour.
+- Every user story MUST have at least one acceptance-level test
+  that can be executed independently.
+- Acceptance tests must be written in an adversarial manner
+  testing edge cases and boundary conditions as if the tester
+  is an user tha has no knowledge of the application. The tests
+  must try to break the app.
+- Refactoring MUST NOT change externally observable behaviour;
+  the existing test suite MUST continue to pass.
+- **Code Coverage**: Unit tests and acceptance tests MUST
+  achieve 100% code coverage. No production code may exist
+  without a corresponding test that exercises it. Coverage
+  MUST be measured and enforced in the CI gate.
+- **Arrange-Act-Assert (AAA)**: All tests MUST follow the
+  Arrange-Act-Assert pattern. Each test method MUST contain
+  exactly three clearly separated sections marked with
+  `// Arrange`, `// Act`, and `// Assert` comments. The
+  Arrange section sets up preconditions and inputs. The Act
+  section invokes the behaviour under test. The Assert section
+  verifies the expected outcome. Sections MAY be omitted only
+  when they would be genuinely empty (e.g., no arrangement
+  needed for a static method with no dependencies), but the
+  remaining sections MUST still be commented.
+- **Bug Fix Regression Tests (NON-NEGOTIABLE)**: Every bug fix
+  MUST start with the creation of one or more failing tests
+  (unit and integration). This builds our regression suite.
+- **5-Minute Debug Limit (NON-NEGOTIABLE)**: When debugging an
+  issue (failing test, broken deploy, unexplained behaviour),
+  the agent MUST stop after 5 minutesof unsuccessful
+  investigation and brief the user with: (a) what was checked,
+  (b) what is known vs. unknown, and (c) the candidate hypotheses.
+  No "one more search", no "let me just check", no follow-up
+  rabbit holes. Brief and wait for guidance.
+
+**Rationale**: TDD produces verifiable, regression-resistant
+code and ensures every feature is exercised by automated tests.
+Mandating 100% coverage eliminates untested paths and prevents
+silent regressions.
+
 ## Technical Constraints
 
 - Python 3.11+ with type annotations throughout.
