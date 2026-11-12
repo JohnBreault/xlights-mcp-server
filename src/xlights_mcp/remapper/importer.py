@@ -293,13 +293,9 @@ def _parse_imported_metadata(
 
 def _parse_imported_metadata_root(root: etree._Element) -> list[ImportedModelMeta]:
     """Parse imported model metadata from an xlights_rgbeffects.xml root."""
-    models_elem = root.find("models")
-    if models_elem is None:
-        return []
-
     result: list[ImportedModelMeta] = []
 
-    for elem in models_elem:
+    for elem in [*root.findall("models/*"), *root.findall("modelGroups/modelGroup")]:
         if elem.tag == "model":
             name = elem.get("name", "")
             if not name:
