@@ -11,10 +11,10 @@ Give it an `.mp3`, and it will analyze the beats, song structure, and energy —
 ## What It Does
 
 ### 🎵 Audio Analysis
-- **Beat & tempo detection** — identifies every beat, downbeat, and bar boundary
-- **Song structure** — detects intro, verse, chorus, bridge, and outro sections
+- **Beat & tempo detection** — percussion-aware beats, phase-aligned bars, conservative meter estimates, and local tempo changes
+- **Song structure** — beat-synchronized timbre/harmony changes and acoustic repetition, with heuristic section labels
 - **Frequency spectrum** — bass, mid, and high energy curves over time
-- **Energy profiling** — loudness dynamics, peak detection, dynamic range
+- **Energy profiling** — loudness dynamics, multiscale RMS, spectral flux/brightness, peak detection, and dynamic range
 - **Source separation** — isolate vocals, drums, bass, and other stems via [Demucs](https://github.com/facebookresearch/demucs) (optional)
 
 ### 💡 Sequence Generation
@@ -247,6 +247,58 @@ Once connected, interact with the server through natural language in your AI too
 > What's the energy profile look like?
 ```
 
+The existing audio tools keep their names and arguments. `analyze_song` includes
+the same beat and spectrum models returned by `get_beat_map` and
+`get_energy_profile`, with these additional fields:
+
+| Result | Additional fields | Units / interpretation |
+|--------|-------------------|------------------------|
+| Beats | `tempo_curve` | Overlapping 10-second windows, approximately 5 seconds apart; `time` is the window start in seconds, `tempo` is BPM, and `beat_count` records supporting detections. Short clips use one window; insufficient evidence yields zero BPM. |
+| Beats | `tempo_changes` | Adjacent positive window estimates differing by more than 10%; `time`, `from_tempo`, and `to_tempo`. These are diagnostic estimates, not exact change boundaries. |
+| Beats | `meter_confidence`, `downbeat_confidence`, `rhythm_method`, `warnings` | Heuristic evidence scores (not calibrated probabilities), selected backend, and degraded-analysis diagnostics. |
+| Spectrum | `spectral_flux` | Positive frame-to-frame magnitude changes, normalized to 0-1. |
+| Spectrum | `spectral_centroid`, `spectral_bandwidth`, `spectral_rolloff` | Hz; rolloff marks 85% of cumulative spectral magnitude. |
+| Spectrum | `spectral_flatness` | Dimensionless 0-1 noise/tonality descriptor; silence is not evidence of audible noise. |
+| Spectrum | `energy_short`, `energy_medium`, `energy_long` | Normalized RMS smoothed over approximately 0.25, 2, and 8 seconds, capped for short clips. |
+
+All new spectral/energy curves use the existing `rms_times` timeline in seconds.
+Existing band names, max-normalized band/RMS curves, raw `average_loudness`, and
+`dynamic_range` (maximum RMS divided by mean RMS) retain their meanings.
+The detailed seven-band Python option remains available.
+
+Meter inference considers simple two-, three-, and four-beat accent patterns.
+Ambiguous patterns, including indistinguishable two-/four-beat accents, retain
+four-beat bars with zero inference confidence; this does not prove a 4/4 time
+signature. Compound meters are not inferred. When installed and working, madmom
+supplies a coherent beat/downbeat grid instead. HPSS failures fall back to
+full-mix rhythm analysis with diagnostics. Onsets stay on attacks, without
+backtracking into preceding quiet audio.
+
+Section boundaries use beat-synchronized MFCC/chroma, brightness, and RMS features.
+Local novelty and acoustic repetition inform boundaries and labels; confident
+bar positions (or the selected madmom grid) can refine boundary alignment.
+Low-evidence audio falls back to conservative energy boundaries or one whole-file
+section. Silence returns an `unknown` section with zero confidence. Labels are
+estimates, not guaranteed verse/chorus annotations; too few sections retain
+energy-based labeling. All timestamps remain on the original, untrimmed audio
+timeline. Sequence generation automatically consumes the improved beats,
+downbeats, and sections; it does not yet use the local tempo curve or additional
+spectral descriptors directly.
+
+Full analysis (including generation/previews) decodes the full mix once on a cache
+miss and persists validated core results under `AudioConfig.cache_dir` (default
+`~/.xlights-mcp/audio_cache/`). Cache keys include file contents, sample rate,
+analysis version, and relevant dependency versions. Writes are atomic; corrupt
+or inaccessible caches are logged and recomputed. Transient enhancement failures
+are not persisted as authoritative results. Optional stems are reevaluated outside
+the core cache, so newly available stems are not hidden by a previous analysis.
+Standalone beat/structure/energy tools analyze only the requested data and do not
+use the full-analysis cache. No source audio or show configuration is modified.
+
+These features use existing librosa/NumPy dependencies; no additional package,
+service, or model is required. Invalid or undecodable audio produces an explicit
+error dictionary from the audio MCP tools.
+
 ### Generate a sequence
 
 ```
@@ -378,6 +430,7 @@ xlights-mcp-server/
 │   ├── config.py              # Configuration management
 │   ├── audio/
 │   │   ├── analyzer.py        # Full analysis pipeline orchestrator
+│   │   ├── cache.py           # Versioned core-analysis cache
 │   │   ├── beats.py           # Beat/tempo/onset detection (librosa + madmom)
 │   │   ├── structure.py       # Song section detection (verse/chorus/bridge)
 │   │   ├── spectrum.py        # Frequency band & energy analysis
@@ -435,3 +488,15 @@ xlights-mcp-server/
 ## License
 
 MIT
+
+### Audio-analysis research provenance
+
+The deterministic audio capabilities were compared with
+[twinklr at commit `59bd7e4`](https://github.com/bluewatersql/twinklr/tree/59bd7e4e59c3a45aa812fe03e516b6a7237a224d/packages/twinklr/core/audio).
+That snapshot has no identified license granting source-code reuse. This project
+therefore implements standard DSP techniques independently using
+[librosa's documented APIs](https://librosa.org/doc/latest/), rather than copying
+or translating twinklr source, tests, bespoke scoring rules, or tuned constants.
+Twinklr is not a dependency, and this acknowledgment does not grant rights to its
+code. Its LLM profiling, remote lyrics/metadata services, and optional MIR model
+backends are not included.

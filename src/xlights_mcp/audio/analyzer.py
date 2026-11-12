@@ -9,10 +9,18 @@ import librosa
 import numpy as np
 from pydantic import BaseModel, Field
 
-from xlights_mcp.audio.beats import BeatMap, detect_beats
-from xlights_mcp.audio.spectrum import SpectrumAnalysis, analyze_spectrum
-from xlights_mcp.audio.structure import SongSection, detect_structure
+from xlights_mcp.audio.beats import (
+    FRAME_LENGTH,
+    HOP_LENGTH,
+    BeatMap,
+    _analyze_beats,
+    _prepare_rhythm,
+    _validate_audio,
+)
+from xlights_mcp.audio.cache import CoreAnalysis, cache_key, load_core, save_core
 from xlights_mcp.audio.separator import StemPaths, separate_stems
+from xlights_mcp.audio.spectrum import SpectrumAnalysis, _analyze_spectrum
+from xlights_mcp.audio.structure import SongSection, _analyze_structure
 from xlights_mcp.config import AudioConfig
 
 logger = logging.getLogger(__name__)
@@ -95,10 +103,22 @@ def full_analysis(
     sr = audio_config.sample_rate
     logger.info(f"Starting full analysis: {audio_path}")
 
-    # Run all analyses
-    beats = detect_beats(audio_path, sr=sr)
-    spectrum = analyze_spectrum(audio_path, sr=sr)
-    sections = detect_structure(audio_path, sr=sr)
+    key = cache_key(audio_path, sr)
+    core = load_core(audio_config.cache_dir, key)
+    if core is None:
+        y, loaded_sr = librosa.load(str(audio_path), sr=sr, mono=True)
+        _validate_audio(y, loaded_sr)
+        magnitude = np.abs(librosa.stft(y, n_fft=FRAME_LENGTH, hop_length=HOP_LENGTH))
+        rms = librosa.feature.rms(y=y, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH)[0]
+        diagnostics: list[str] = []
+        onset, chroma = _prepare_rhythm(y, loaded_sr, magnitude, diagnostics)
+        beats = _analyze_beats(y, loaded_sr, onset, chroma, audio_path, diagnostics)
+        spectrum = _analyze_spectrum(y, loaded_sr, magnitude=magnitude, rms=rms)
+        sections = _analyze_structure(y, loaded_sr, beats, magnitude, rms, chroma)
+        core = CoreAnalysis(beats=beats, spectrum=spectrum, sections=sections)
+        if not beats.warnings:
+            save_core(audio_config.cache_dir, key, core)
+    beats, spectrum, sections = core.beats, core.spectrum, core.sections
 
     # Always try stem separation (results are cached)
     stems = StemPaths()

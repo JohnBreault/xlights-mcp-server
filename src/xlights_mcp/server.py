@@ -322,7 +322,11 @@ def analyze_song(mp3_path: str) -> dict:
         return {"error": f"File not found: {path}"}
 
     config = get_config()
-    analysis = full_analysis(path, config.audio)
+    try:
+        analysis = full_analysis(path, config.audio)
+    except Exception as exc:
+        logger.exception("Audio analysis failed for %s", path)
+        return {"error": f"Audio analysis failed: {exc}"}
     return analysis.model_dump()
 
 
@@ -339,7 +343,11 @@ def get_song_structure(mp3_path: str) -> dict:
     if not path.exists():
         return {"error": f"File not found: {path}"}
 
-    sections = detect_structure(path)
+    try:
+        sections = detect_structure(path, sr=get_config().audio.sample_rate)
+    except Exception as exc:
+        logger.exception("Structure analysis failed for %s", path)
+        return {"error": f"Structure analysis failed: {exc}"}
     return {"sections": [s.model_dump() for s in sections]}
 
 
@@ -356,7 +364,11 @@ def get_beat_map(mp3_path: str) -> dict:
     if not path.exists():
         return {"error": f"File not found: {path}"}
 
-    result = detect_beats(path)
+    try:
+        result = detect_beats(path, sr=get_config().audio.sample_rate)
+    except Exception as exc:
+        logger.exception("Beat analysis failed for %s", path)
+        return {"error": f"Beat analysis failed: {exc}"}
     return result.model_dump()
 
 
@@ -375,7 +387,11 @@ def get_energy_profile(mp3_path: str) -> dict:
     if not path.exists():
         return {"error": f"File not found: {path}"}
 
-    result = analyze_spectrum(path)
+    try:
+        result = analyze_spectrum(path, sr=get_config().audio.sample_rate)
+    except Exception as exc:
+        logger.exception("Energy analysis failed for %s", path)
+        return {"error": f"Energy analysis failed: {exc}"}
     return result.model_dump()
 
 
