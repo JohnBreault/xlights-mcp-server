@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 
 import pytest
 from lxml import etree
 
-from xlights_mcp.remapper.importer import parse_xsq, _parse_imported_metadata
+from xlights_mcp.remapper.importer import (
+    _parse_imported_metadata,
+    import_package,
+    parse_xsq,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "remapping"
 
@@ -24,6 +29,11 @@ class TestParseXsq:
         assert "Arch Left" in seq_data.model_names
         assert "Snowflake 1" in seq_data.model_names
         assert len(seq_data.model_names) == 3
+        assert seq_data.model_effect_counts == {
+            "Mega Tree": 3,
+            "Arch Left": 1,
+            "Snowflake 1": 2,
+        }
 
     def test_timing_track_names_extracted(self):
         seq_data, root = parse_xsq(FIXTURES / "minimal_sequence.xsq")
@@ -114,3 +124,84 @@ class TestParseImportedMetadata:
     def test_nonexistent_file(self):
         result = _parse_imported_metadata(Path("/nonexistent.xml"))
         assert result == []
+
+    @pytest.mark.parametrize("models", ["", "<models/>", '<models><model name="Arch"/></models>'])
+    def test_top_level_groups_without_populated_models(self, tmp_path, models):
+        # Arrange
+        metadata_path = tmp_path / "xlights_rgbeffects.xml"
+        metadata_path.write_text(
+            f'<xlights>{models}<modelGroups>'
+            '<modelGroup name="All Arches" models=" Arch Left, , Arch Right, "/>'
+            '<modelGroup models="Ignored"/>'
+            '</modelGroups></xlights>'
+        )
+
+        # Act
+        metas = _parse_imported_metadata(metadata_path)
+
+        # Assert
+        groups = [meta for meta in metas if meta.is_group]
+        assert len(groups) == 1
+        assert groups[0].name == "All Arches"
+        assert groups[0].group_members == ["Arch Left", "Arch Right"]
+        assert {meta.name for meta in metas if not meta.is_group} == (
+            {"Arch"} if 'name="Arch"' in models else set()
+        )
+
+
+class TestImportPackageZip:
+    def test_reads_top_level_and_legacy_groups_from_archive(self, tmp_path):
+        # Arrange
+        zip_path = tmp_path / "package.zip"
+        show_dir = tmp_path / "show"
+        show_dir.mkdir()
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.write(FIXTURES / "minimal_sequence.xsq", "minimal_sequence.xsq")
+            zf.writestr(
+                "xlights_rgbeffects.xml",
+                '<xlights><models><model name="Arch Left"/>'
+                '<modelGroup name="Legacy Arches" models="Arch Left"/>'
+                '</models><modelGroups>'
+                '<modelGroup name="All Arches" models="Arch Left, Arch Right"/>'
+                '</modelGroups></xlights>',
+            )
+
+        # Act
+        _, _, imported_meta, _ = import_package(zip_path, show_dir)
+
+        # Assert
+        assert imported_meta is not None
+        groups = {meta.name: meta.group_members for meta in imported_meta if meta.is_group}
+        assert groups == {
+            "Legacy Arches": ["Arch Left"],
+            "All Arches": ["Arch Left", "Arch Right"],
+        }
+        assert {meta.name for meta in imported_meta if not meta.is_group} == {"Arch Left"}
+
+    def test_reads_archive_metadata_when_show_file_already_exists(self, tmp_path):
+        zip_path = tmp_path / "package.zip"
+        show_dir = tmp_path / "show"
+        show_dir.mkdir()
+        (show_dir / "xlights_rgbeffects.xml").write_text(
+            '<xlights><models><model name="Show Model"/></models></xlights>'
+        )
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.write(FIXTURES / "minimal_sequence.xsq", "minimal_sequence.xsq")
+            zf.writestr(
+                "nested/xlights_rgbeffects.xml",
+                '<xlights><models><model name="Nested Metadata"/></models></xlights>',
+            )
+            zf.write(FIXTURES / "minimal_rgbeffects.xml", "xlights_rgbeffects.xml")
+
+        _, _, imported_meta, assets = import_package(zip_path, show_dir)
+
+        assert imported_meta is not None
+        assert "Mega Tree" in {model.name for model in imported_meta}
+        assert "Show Model" not in {model.name for model in imported_meta}
+        assert "Nested Metadata" not in {model.name for model in imported_meta}
+        assert any(
+            asset.archive_path == "xlights_rgbeffects.xml"
+            and asset.status.value == "already_exists"
+            for asset in assets
+        )

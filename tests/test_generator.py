@@ -118,6 +118,44 @@ class TestCloneAndRemapTree:
         ]
         assert "Lyrics" in timing_names
 
+    def test_remaps_faces_definition_without_changing_shared_effect(self):
+        root = etree.fromstring(
+            b"""<xsequence>
+              <EffectDB>
+                <Effect>E_CHOICE_Faces_FaceDefinition=Source Face,Name=Faces</Effect>
+              </EffectDB>
+              <DisplayElements><Element type="model" name="Imported Singer"/></DisplayElements>
+              <ElementEffects>
+                <Element type="model" name="Imported Singer">
+                  <EffectLayer><Effect ref="0"/></EffectLayer>
+                </Element>
+                <Element type="model" name="Other Model">
+                  <EffectLayer><Effect ref="0"/></EffectLayer>
+                </Element>
+              </ElementEffects>
+            </xsequence>"""
+        )
+        mapping = ModelMapping(
+            imported_name="Imported Singer",
+            user_name="My Singer",
+            rule=MatchRule.EXACT_NAME,
+            target_face_definition="Target Face",
+        )
+
+        remapped = _clone_and_remap_tree(root, [mapping], set())
+        effects = remapped.find("ElementEffects")
+        mapped_effect = effects.find("./Element[@name='My Singer']/EffectLayer/Effect")
+        other_effect = effects.find("./Element[@name='Other Model']/EffectLayer/Effect")
+
+        assert mapped_effect.get("ref") == "1"
+        assert other_effect.get("ref") == "0"
+        assert remapped.find("EffectDB/Effect").text.startswith(
+            "E_CHOICE_Faces_FaceDefinition=Source Face"
+        )
+        assert remapped.find("EffectDB/Effect[2]").text.startswith(
+            "E_CHOICE_Faces_FaceDefinition=Target Face"
+        )
+
 
 # ---------------------------------------------------------------------------
 # generate_remapped_sequence  (T013, T017)
@@ -170,3 +208,21 @@ class TestGenerateRemappedSequence:
             root, report, tmp_path, base_name="Song"
         )
         assert path2.name == "Song (remapped 2).xsq"
+
+    @pytest.mark.parametrize("song_title", ["", "Sequence", "Untitled"])
+    def test_falls_back_to_import_filename(self, tmp_path, song_title):
+        _, root = parse_xsq(FIXTURES / "minimal_sequence.xsq")
+        root.find("head/song").text = song_title
+        report = MappingReport(
+            mappings=[],
+            total_imported_models=0,
+            total_user_models=0,
+            total_matched=0,
+            match_rule_distribution={},
+        )
+
+        output_path, _, _ = generate_remapped_sequence(
+            root, report, tmp_path, fallback_name="Imported Filename"
+        )
+
+        assert output_path.name == "Imported Filename (remapped 1).xsq"

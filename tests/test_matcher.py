@@ -33,6 +33,7 @@ def _make_candidate(
     name: str,
     source: str = "imported",
     pixel_count: int = 0,
+    effect_count: int | None = None,
     display_as: str = "",
     is_singing: bool = False,
     is_group: bool = False,
@@ -42,6 +43,7 @@ def _make_candidate(
         name=name,
         source=source,
         pixel_count=pixel_count,
+        effect_count=effect_count,
         display_as=display_as,
         is_singing=is_singing,
         is_group=is_group,
@@ -337,6 +339,42 @@ class TestMatchModels:
         report = match_models(imp, usr)
         assert report.total_matched == 1
         assert report.mappings[0].rule == MatchRule.EXACT_NAME
+
+    def test_prefers_populated_source_and_skips_empty_source(self):
+        imported = [
+            _make_candidate(
+                "Candy Cane", pixel_count=99, effect_count=0, display_as="Custom"
+            ),
+            _make_candidate(
+                "Candy Cane Group", pixel_count=99, effect_count=1, display_as="Custom"
+            ),
+            _make_candidate(
+                "Candy Cane Prop", pixel_count=99, effect_count=20, display_as="Custom"
+            ),
+        ]
+        user = [
+            _make_candidate("Candy Cane", "user", pixel_count=99, display_as="Custom")
+        ]
+
+        report = match_models(imported, user)
+
+        assert [(mapping.imported_name, mapping.user_name) for mapping in report.mappings] == [
+            ("Candy Cane Prop", "Candy Cane")
+        ]
+        assert {model.name for model in report.unmatched_imported} == {
+            "Candy Cane",
+            "Candy Cane Group",
+        }
+
+    def test_manual_override_can_map_empty_source(self):
+        report = match_models(
+            [_make_candidate("Empty Source", effect_count=0)],
+            [_make_candidate("Target", "user")],
+            overrides={"Empty Source": "Target"},
+        )
+
+        assert report.total_matched == 1
+        assert report.mappings[0].rule == MatchRule.MANUAL_OVERRIDE
 
     def test_singing_isolation(self):
         """Singing models should not match non-singing and vice versa."""

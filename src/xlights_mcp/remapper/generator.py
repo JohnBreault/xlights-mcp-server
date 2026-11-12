@@ -95,7 +95,62 @@ def _clone_and_remap_tree(
         for elem in to_remove:
             effect_elems.remove(elem)
 
+    _remap_face_definitions(new_root, mappings)
     return new_root
+
+
+def _remap_face_definitions(
+    root: etree._Element, mappings: list[ModelMapping]
+) -> None:
+    """Use a target's sole face definition for its imported Faces effects."""
+    face_definitions = {
+        mapping.user_name: mapping.target_face_definition
+        for mapping in mappings
+        if mapping.target_face_definition
+    }
+    element_effects = root.find("ElementEffects")
+    effect_db = root.find("EffectDB")
+    if not face_definitions or element_effects is None or effect_db is None:
+        return
+
+    database_effects = effect_db.findall("Effect")
+    cloned_refs: dict[tuple[int, str], int] = {}
+
+    for element in element_effects:
+        target_face = face_definitions.get(element.get("name", ""))
+        if element.get("type") != "model" or not target_face:
+            continue
+
+        for effect in element.iter("Effect"):
+            try:
+                ref = int(effect.get("ref", ""))
+            except ValueError:
+                continue
+            if not 0 <= ref < len(database_effects):
+                continue
+
+            settings = database_effects[ref].text or ""
+            updated_pairs = []
+            changed = False
+            for pair in settings.split(","):
+                key, separator, value = pair.partition("=")
+                if key == "E_CHOICE_Faces_FaceDefinition" and separator:
+                    pair = f"{key}={target_face}"
+                    changed = changed or value != target_face
+                updated_pairs.append(pair)
+            if not changed:
+                continue
+
+            cache_key = (ref, target_face)
+            new_ref = cloned_refs.get(cache_key)
+            if new_ref is None:
+                cloned_effect = copy.deepcopy(database_effects[ref])
+                cloned_effect.text = ",".join(updated_pairs)
+                effect_db.append(cloned_effect)
+                new_ref = len(database_effects)
+                database_effects.append(cloned_effect)
+                cloned_refs[cache_key] = new_ref
+            effect.set("ref", str(new_ref))
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +205,7 @@ def generate_remapped_sequence(
     report: MappingReport,
     show_folder: Path,
     base_name: str | None = None,
+    fallback_name: str | None = None,
 ) -> tuple[Path, list[str], list[str]]:
     """Generate a remapped .xsq file in the user's show folder.
 
@@ -159,6 +215,7 @@ def generate_remapped_sequence(
         show_folder: User's show folder path.
         base_name: Base name for the output file (without extension).
             Defaults to the song name from <head>.
+        fallback_name: Name to use when the song title is empty or generic.
 
     Returns:
         Path to the written .xsq file.
@@ -168,8 +225,17 @@ def generate_remapped_sequence(
         head = root.find("head")
         if head is not None:
             base_name = (head.findtext("song") or "").strip()
+        if base_name and base_name.casefold() in {
+            "sequence",
+            "new sequence",
+            "untitled",
+            "untitled sequence",
+            "generic",
+            "unknown",
+        }:
+            base_name = ""
         if not base_name:
-            base_name = "Sequence"
+            base_name = fallback_name or "Sequence"
 
     # Clone and remap
     unmatched_names = {u.name for u in report.unmatched_imported}
