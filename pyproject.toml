@@ -23,7 +23,7 @@ separation = [
     "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version < '3.13'",
     "torch>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "torchaudio>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "torch>=2.3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "torch>=2.4.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 beats = [
     "madmom-modern @ https://github.com/imcmurray/madmom-modern/archive/df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
