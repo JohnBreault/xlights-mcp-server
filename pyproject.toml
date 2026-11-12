@@ -7,6 +7,8 @@ dependencies = [
     "mcp[cli]>=1.2.0,<2",
     "librosa>=0.10.0",
     "numpy>=1.24.0",
+    "numpy>=2; sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version >= '3.13'",
+    "numba<0.62; sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version < '3.13'",
     "pyloudnorm>=0.1.1",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
@@ -18,14 +20,19 @@ dependencies = [
 [project.optional-dependencies]
 separation = [
     "demucs>=4.0.0",
-    "torch>=2.0.0",
+    "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version < '3.13'",
+    "torch>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torchaudio>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.4.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 beats = [
-    "madmom>=0.16.1",
+    "madmom-modern @ https://github.com/imcmurray/madmom-modern/archive/df718c704a3b460ac6c61b7e61663a0436b91bda.tar.gz ; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 lyrics = [
     "openai-whisper>=20230918",
-    "torch>=2.0.0",
+    "numpy<2; sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version < '3.13'",
+    "torch>=2.2.0,<2.3.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "torch>=2.3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 all = [
     "xlights-mcp-server[separation,beats,lyrics]",
@@ -46,11 +53,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/xlights_mcp"]
 
-# Avoid building this optional legacy release just to resolve default dependencies.
-[[tool.uv.dependency-metadata]]
-name = "madmom"
-version = "0.16.1"
-requires-dist = ["numpy>=1.13.4", "scipy>=0.16", "cython>=0.25", "mido>=1.2.8"]
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.ruff]
 target-version = "py311"
