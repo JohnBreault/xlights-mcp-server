@@ -9,7 +9,7 @@ import xlights_mcp.audio.beats as beats
 from xlights_mcp.audio.beats import _try_madmom_downbeats
 
 
-def test_madmom_downbeats_use_supported_time_signatures(tmp_path, monkeypatch):
+def test_madmom_detects_three_beats_per_bar_in_short_clip(tmp_path, monkeypatch):
     downbeats = ModuleType("madmom.features.downbeats")
 
     class RNNDownBeatProcessor:
@@ -25,7 +25,7 @@ def test_madmom_downbeats_use_supported_time_signatures(tmp_path, monkeypatch):
 
         def __call__(self, activations):
             assert activations == "activations"
-            return [[0.5, 1], [1.0, 2], [1.5, 3], [2.0, 1], [2.5, 2], [3.0, 3]]
+            return [[0.5, 1], [1.0, 2], [1.5, 3]]
 
     downbeats.RNNDownBeatProcessor = RNNDownBeatProcessor
     downbeats.DBNDownBeatTrackingProcessor = DBNDownBeatTrackingProcessor
@@ -34,8 +34,8 @@ def test_madmom_downbeats_use_supported_time_signatures(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "madmom.features.downbeats", downbeats)
 
     assert _try_madmom_downbeats(tmp_path / "song.wav") == (
-        [0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
-        [0.5, 2.0],
+        [0.5, 1.0, 1.5],
+        [0.5],
         3,
     )
 
